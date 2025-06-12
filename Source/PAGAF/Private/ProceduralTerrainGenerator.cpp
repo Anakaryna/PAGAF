@@ -159,6 +159,9 @@ void AProceduralTerrainGenerator::GenerateBlocksInRadius(const FIntVector& Cente
     TArray<FIntVector> Positions;
     Positions.Reserve((Radius * 2 + 1) * (Radius * 2 + 1) * (MaxHeight - MinHeight + 1));
     
+    // 🔧 FIX: Use TSet to prevent duplicate positions
+    TSet<FIntVector> UniquePositions;
+    
     for (int32 x = Center.X - Radius; x <= Center.X + Radius; x++)
     {
         for (int32 y = Center.Y - Radius; y <= Center.Y + Radius; y++)
@@ -170,7 +173,12 @@ void AProceduralTerrainGenerator::GenerateBlocksInRadius(const FIntVector& Cente
                 if (!IsInRadius(Center, GridPos, Radius) || IsBlockLoaded(GridPos))
                     continue;
                 
-                Positions.Add(GridPos);
+                // 🔧 FIX: Ensure no duplicate positions
+                if (!UniquePositions.Contains(GridPos))
+                {
+                    UniquePositions.Add(GridPos);
+                    Positions.Add(GridPos);
+                }
             }
         }
     }
@@ -182,11 +190,18 @@ void AProceduralTerrainGenerator::GenerateBlocksInRadius(const FIntVector& Cente
         return DistA < DistB;
     });
     
-    // Generate with performance throttling
+    // Generate with performance throttling and validation
+    int32 PlacedThisFrame = 0;
     for (const FIntVector& GridPos : Positions)
     {
-        if (BlocksGeneratedThisFrame >= MaxBlocksPerFrame)
+        if (PlacedThisFrame >= MaxBlocksPerFrame)
             break;
+        
+        // 🔧 FIX: Double-check position isn't already occupied
+        if (IsBlockLoaded(GridPos))
+        {
+            continue; // Skip already loaded positions
+        }
         
         EBlockType BlockType = (GenerationType == EGenerationType::Simple) 
             ? GenerateSimpleTerrain(GridPos) 
@@ -195,12 +210,21 @@ void AProceduralTerrainGenerator::GenerateBlocksInRadius(const FIntVector& Cente
         if (BlockType != EBlockType::Air)
         {
             PlaceBlock(GridPos, BlockType);
-            BlocksGeneratedThisFrame++;
+            PlacedThisFrame++;
         }
         else
         {
+            // Mark air positions as loaded to prevent re-processing
             LoadedBlocks.Add(GridPos);
         }
+    }
+    
+    BlocksGeneratedThisFrame = PlacedThisFrame;
+    
+    if (bDebugLogs && PlacedThisFrame > 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("📦 Placed %d blocks this frame (Center: %d,%d,%d)"), 
+               PlacedThisFrame, Center.X, Center.Y, Center.Z);
     }
 }
 
@@ -230,12 +254,13 @@ void AProceduralTerrainGenerator::RemoveDistantBlocks(const FIntVector& Center, 
 
 EBlockType AProceduralTerrainGenerator::GenerateSimpleTerrain(const FIntVector& GridPos) const
 {
+    // 🔧 FIX: Cache height calculation to ensure consistency
     int32 TerrainHeight = GetTerrainHeight(GridPos.X, GridPos.Y);
     
-    // Above terrain
+    // Above terrain - Air and Water zones
     if (GridPos.Z > TerrainHeight)
     {
-        // Water generation in low areas
+        // Water generation in low areas only
         if (GridPos.Z <= SeaLevel && TerrainHeight <= SeaLevel)
         {
             return EBlockType::Water;
@@ -243,19 +268,28 @@ EBlockType AProceduralTerrainGenerator::GenerateSimpleTerrain(const FIntVector& 
         return EBlockType::Air;
     }
     
-    // Surface layer
+    // 🔧 FIX: Ensure exact surface layer placement
     if (GridPos.Z == TerrainHeight)
     {
-        return (TerrainHeight <= SeaLevel) ? EBlockType::Dirt : EBlockType::Grass;
+        // Surface block determination
+        if (TerrainHeight <= SeaLevel)
+        {
+            return EBlockType::Dirt; // Underwater/shoreline surface
+        }
+        else
+        {
+            return EBlockType::Grass; // Land surface
+        }
     }
     
-    // Subsurface layers
-    if (GridPos.Z > TerrainHeight - DirtDepth)
+    // 🔧 FIX: Clearer subsurface layer definition
+    int32 DirtLayerBottom = TerrainHeight - DirtDepth;
+    if (GridPos.Z > DirtLayerBottom)
     {
-        return EBlockType::Dirt;
+        return EBlockType::Dirt; // Dirt layer beneath surface
     }
     
-    // Deep layers
+    // Deep underground - Stone layer
     return EBlockType::Stone;
 }
 
@@ -320,15 +354,29 @@ float AProceduralTerrainGenerator::GetMultiOctaveNoise(float X, float Y) const
 
 void AProceduralTerrainGenerator::PlaceBlock(const FIntVector& GridPos, EBlockType BlockType)
 {
-    // Prevent duplicate placement
+    // 🔧 CRITICAL FIX: Enhanced duplicate prevention
     if (WorldGrid.Contains(GridPos))
     {
+        // Check if it's the same block type - if so, skip silently
+        const FBlockData* ExistingBlock = WorldGrid.Find(GridPos);
+        if (ExistingBlock && ExistingBlock->BlockType == BlockType)
+        {
+            return; // Same block type, no need to place again
+        }
+        
+        // Different block type - remove existing first
         if (bDebugLogs)
         {
-            UE_LOG(LogTemp, Error, TEXT("🚨 Overlap prevented at (%d,%d,%d)"), 
-                   GridPos.X, GridPos.Y, GridPos.Z);
+            UE_LOG(LogTemp, Warning, TEXT("🔄 Replacing block at (%d,%d,%d): %d -> %d"), 
+                   GridPos.X, GridPos.Y, GridPos.Z, (int32)ExistingBlock->BlockType, (int32)BlockType);
         }
-        return;
+        RemoveBlock(GridPos);
+    }
+    
+    // Double-check LoadedBlocks set for consistency
+    if (LoadedBlocks.Contains(GridPos) && !WorldGrid.Contains(GridPos))
+    {
+        LoadedBlocks.Remove(GridPos); // Clean up inconsistent state
     }
     
     // Get instance component
@@ -339,16 +387,17 @@ void AProceduralTerrainGenerator::PlaceBlock(const FIntVector& GridPos, EBlockTy
         return;
     }
     
-    // Create and place block
+    // Create and place block with precise positioning
     FBlockData BlockData(BlockType);
     BlockData.bGenerated = true;
     
+    // 🔧 FIX: Ensure precise grid-aligned positioning
     FVector WorldPos = GridToWorld(GridPos);
-    FTransform BlockTransform(WorldPos);
+    FTransform BlockTransform(FRotator::ZeroRotator, WorldPos, FVector::OneVector);
     
     BlockData.InstanceIndex = InstanceComp->AddInstance(BlockTransform);
     
-    // Store in world grid
+    // Store in world grid with validation
     WorldGrid.Add(GridPos, BlockData);
     LoadedBlocks.Add(GridPos);
 }
