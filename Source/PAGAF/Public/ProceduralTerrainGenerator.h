@@ -1,5 +1,4 @@
-﻿// ProceduralTerrainGenerator.h
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -145,6 +144,9 @@ private:
     int32 BlocksGeneratedThisFrame;
     double LastGenerationTime;
     
+    // 🔧 NEW: Debug tracking for validation
+    double LastValidationTime = 0.0;
+    
     // ========== CORE GENERATION ==========
     void UpdateTerrainAroundPlayer();
     void GenerateBlocksInRadius(const FIntVector& Center, int32 Radius);
@@ -175,6 +177,16 @@ private:
     void SetupInstancedMeshComponents();
     void OptimizeRendering();
     
+    // 🔧 NEW: Z-Fighting and Duplicate Prevention Functions
+    float GetZFightingOffset(EBlockType BlockType) const;
+    void UpdateInstanceIndicesAfterRemoval(EBlockType RemovedBlockType, int32 RemovedIndex);
+    FString GetBlockTypeName(EBlockType BlockType) const;
+    
+    // 🔧 NEW: Enhanced Block Management
+    bool IsPositionValidForPlacement(const FIntVector& GridPos, EBlockType BlockType) const;
+    void ForceCleanPosition(const FIntVector& GridPos);
+    bool IsWaterPositionValid(const FIntVector& GridPos) const;
+    
     // ========== UTILITY ==========
     bool IsInRadius(const FIntVector& Center, const FIntVector& Point, int32 Radius) const;
     float GetDistance3D(const FIntVector& A, const FIntVector& B) const;
@@ -198,4 +210,14 @@ public:
     
     UFUNCTION(BlueprintCallable, Category = "Terrain")
     void SwitchGenerationType(EGenerationType NewType);
+    
+    // 🔧 NEW: Debug and Validation Functions
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    bool ValidateNoOverlaps() const;
+    
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void ForceValidateAndFix();
+    
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void LogTerrainStats() const;
 };
