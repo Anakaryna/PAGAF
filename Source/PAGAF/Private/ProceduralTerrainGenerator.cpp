@@ -7,20 +7,25 @@
 AProceduralTerrainGenerator::AProceduralTerrainGenerator()
 {
     PrimaryActorTick.bCanEverTick = true;
-    
-    // Create instanced mesh components
-    GrassInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>("GrassInstances");
-    DirtInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>("DirtInstances");
-    StoneInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>("StoneInstances");
-    WaterInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>("WaterInstances");
-    
-    RootComponent = GrassInstances;
-    DirtInstances->SetupAttachment(RootComponent);
-    StoneInstances->SetupAttachment(RootComponent);
-    WaterInstances->SetupAttachment(RootComponent);
-    
+
+    Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+    SetRootComponent(Root);
+
+    GrassInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("GrassInstances"));
+    GrassInstances->SetupAttachment(Root);
+
+    DirtInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("DirtInstances"));
+    DirtInstances->SetupAttachment(Root);
+
+    StoneInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("StoneInstances"));
+    StoneInstances->SetupAttachment(Root);
+
+    WaterInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WaterInstances"));
+    WaterInstances->SetupAttachment(Root);
+
     SetupInstancedMeshComponents();
 }
+
 
 void AProceduralTerrainGenerator::BeginPlay()
 {
