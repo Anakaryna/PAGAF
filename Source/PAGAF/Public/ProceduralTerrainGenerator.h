@@ -119,17 +119,20 @@ protected:
     bool bDebugLogs = true;
 
 private:
+    UPROPERTY(VisibleAnywhere)
+    USceneComponent* Root;
+    
     // ========== COMPONENTS ==========
-    UPROPERTY()
+    UPROPERTY(VisibleAnywhere)
     UInstancedStaticMeshComponent* GrassInstances;
     
-    UPROPERTY()
+    UPROPERTY(VisibleAnywhere)
     UInstancedStaticMeshComponent* DirtInstances;
     
-    UPROPERTY()
+    UPROPERTY(VisibleAnywhere)
     UInstancedStaticMeshComponent* StoneInstances;
     
-    UPROPERTY()
+    UPROPERTY(VisibleAnywhere)
     UInstancedStaticMeshComponent* WaterInstances;
     
     // ========== CORE DATA ==========
