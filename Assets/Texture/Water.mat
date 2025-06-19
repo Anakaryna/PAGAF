@@ -110,6 +110,7 @@ Material:
     - _Cull: 2
     - _Cutoff: 0.5
     - _Depth: 3
+    - _DepthFade: 0.09
     - _DetailAlbedoMapScale: 1
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
