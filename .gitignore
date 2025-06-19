@@ -1,4 +1,46 @@
-# Rider IDE
+# === Unity Specific ===
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+UserSettings/
+*.pidb
+*.booproj
+*.svd
+*.userprefs
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userosscache
+*.sln.docstates
+
+# Unity-generated meta files for deleted assets
+*.pidb.meta
+*.pdb
+*.mdb
+
+# Crash and analytics reports
+sysinfo.txt
+*.stacktrace
+
+# Cache
+*.apk
+*.aab
+*.unitypackage
+UnityPackageManager/
+.crashreport/
+.DS_Store
+
+# Visual Studio / Rider / IDEs
+.vscode/
+.vs/
+.vsconfig
 .idea/
 *.sln
 *.suo
@@ -7,52 +49,10 @@
 *.csproj
 *.vcxproj
 *.vcxproj.*
-*.opensdf
-*.sdf
-*.db
 *.opendb
-.vscode/
-.vs/
-.vsconfig
+*.db
 
-# Compiled source files
-*.dll
-*.exe
-*.app
-*.ipa
-*.pdb
-*.obj
-*.o
-*.so
-*.dylib
-*.lib
-*.a
-*.lo
-*.slo
-*.mod
-*.lai
-*.la
-*.gch
-*.pch
-*.idb
-
-# Engine-generated files
-DerivedDataCache/
-Intermediate/
-Build/
-Binaries/
-Saved/
-.vscode/
-
-# Plugin intermediate/binaries
-Plugins/**/Intermediate/
-Plugins/**/Binaries/
-
-# Built map data
-*_BuiltData.uasset
-
-
-# Rider
+# Rider specifics
 .idea/
 *.iml
 *.ipr
@@ -64,16 +64,16 @@ Plugins/**/Binaries/
 .idea/**/dictionaries
 .idea/**/shelf
 
-# Auto-generated Config backups
-Config/DefaultEditorSettings.ini
-Config/DefaultInput.ini
-Config/DefaultEngine.ini
-Config/DefaultGame.ini
-
-# Windows
+# OS specific
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
 # Logs
 *.log
+
+# Exclude personal settings
+*.swp
+*.bak
+*.tmp
+*.orig
