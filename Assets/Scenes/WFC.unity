@@ -424,9 +424,9 @@ MonoBehaviour:
     type: 3}
   EmptyPrefab: {fileID: 3212790041889562079, guid: ee00be452dab25548a766866e1d563ec,
     type: 3}
-  GridSizeX: 5
-  GridSizeY: 40
-  GridSizeZ: 5
+  GridSizeX: 20
+  GridSizeY: 50
+  GridSizeZ: 20
   VoxelSize: 0.2
 --- !u!4 &727243492
 Transform:
