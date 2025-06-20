@@ -114,9 +114,12 @@ public class WFCGenerator : MonoBehaviour
             [VoxelType.Leaf] = new ModuleRule(
                 up   : Only(VoxelType.Empty),
                 down : AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.StemFork),
-                sides: AnyOf(VoxelType.Empty)
+                    VoxelType.StemFork),
+                // allow a stem next to me, not just air
+                sides: AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
+                    VoxelType.StemFork, VoxelType.StemEnd)
             ),
+
             /* ── flowers ── */
             [VoxelType.FlowerA] = new ModuleRule(
                 up   : Only(VoxelType.Empty),
