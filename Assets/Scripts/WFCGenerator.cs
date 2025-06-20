@@ -2,9 +2,16 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Procedural “vine” generator –
+///   1. grows a sparse stem skeleton with WFC-style constraints,
+///   2. decorates free sides with leaves,
+///   3. caps every column with a flower-or-end.
+/// Drop it on an empty GameObject, assign the 9 prefabs, press Play.
+/// </summary>
 public class WFCGenerator : MonoBehaviour
 {
-    /* ───────────── TYPES ───────────── */
+    /* ───────────── ENUMS ───────────── */
     public enum VoxelType
     {
         Empty,
@@ -20,31 +27,40 @@ public class WFCGenerator : MonoBehaviour
         { this.up = up; this.down = down; this.sides = sides; }
     }
 
-    static string[] Only(params VoxelType[] t) => Array.ConvertAll(t, v => v.ToString());
-    static string[] AnyOf(params VoxelType[] t) => Only(t);
+    /* ────────── STYLE TWEAKS ───────── */
+    const float GROUND_SEED = 0.15f;   // fraction of ground cells that start a stem
+    const float SIDE_GROW   = 0.5f;   // sideways-growth probability per step
+    const float LEAF_RATE   = 0.85f;   // chance to stick a leaf on each free side
+    const float FLOWER_RATE = 0.80f;   // chance column-tip becomes a flower
 
-    /* ─────────── INSPECTOR ────────── */
-    [Header("Prefabs")]
+    /* ───── PREFABS & GRID ───── */
+    [Header("Prefab palette")]
     public GameObject StemStraightPrefab, StemTurnXPrefab, StemTurnZPrefab,
-                      StemForkPrefab, StemEndPrefab,
-                      LeafPrefab, FlowerAPrefab, FlowerBPrefab, EmptyPrefab;
+                      StemForkPrefab,  StemEndPrefab,
+                      LeafPrefab,      FlowerAPrefab, FlowerBPrefab, EmptyPrefab;
 
-    [Header("Grid Settings")]
-    public int   GridSizeX = 10, GridSizeY = 50, GridSizeZ = 10;
-    public float VoxelSize = .25f;
+    [Header("Grid")]
+    public int   GridSizeX = 12, GridSizeY = 48, GridSizeZ = 12;
+    public float VoxelSize = 0.25f;
 
-    /* ─────────── INTERNALS ─────────── */
-    VoxelType?[,,]                    grid;
-    Dictionary<VoxelType, GameObject> prefabMap;
-    Dictionary<VoxelType, float>      weights;
-    Dictionary<VoxelType, ModuleRule> rules;
+    /* ───── INTERNAL DATA ───── */
+    VoxelType?[,,] grid;
+    Dictionary<VoxelType, GameObject> pref;
+    Dictionary<VoxelType, float>      weight;
+    Dictionary<VoxelType, ModuleRule> rule;
 
-    /* ─────────── LIFECYCLE ─────────── */
-    void Awake()  { InitPrefabMap(); InitWeights(); InitRules(); }
-    void Start()  { RunWFC(); ConvertColumnTips(); SpawnGrid(); }
+    /* ───────── LIFECYCLE ───────── */
+    void Awake () { InitPref(); InitWeights(); InitRules(); }
+    void Start  ()
+    {
+        BuildStemSkeleton();
+        AddLeaves();
+        DecorateTips();
+        Spawn();
+    }
 
-    /* ─────── INITIALISATION ─────── */
-    void InitPrefabMap() => prefabMap = new()
+    /* ─────── INIT HELPERS ─────── */
+    void InitPref() => pref = new()
     {
         [VoxelType.StemStraight] = StemStraightPrefab,
         [VoxelType.StemTurnX]    = StemTurnXPrefab,
@@ -57,207 +73,181 @@ public class WFCGenerator : MonoBehaviour
         [VoxelType.Empty]        = EmptyPrefab
     };
 
-    /* ➊ Weights tilted for *height* */
-    void InitWeights() => weights = new()
+    void InitWeights() => weight = new()
     {
-        [VoxelType.Empty]        = 5.0f,   // ↓ smaller   (stops wave less often)
-        [VoxelType.StemStraight] = 2.0f,   // ↑ bigger
-        [VoxelType.StemTurnX]    = 1.5f,
-        [VoxelType.StemTurnZ]    = 1.5f,
-        [VoxelType.StemFork]     = 1.0f,
-        [VoxelType.StemEnd]      = 0.8f,
-        [VoxelType.Leaf]         = 2.5f,
-        [VoxelType.FlowerA]      = 0.7f,
-        [VoxelType.FlowerB]      = 0.7f
+        [VoxelType.Empty]        = 6f,
+        [VoxelType.StemStraight] = 1.0f,
+        [VoxelType.StemTurnX]    = 2.2f,
+        [VoxelType.StemTurnZ]    = 2.2f,
+        [VoxelType.StemFork]     = 1.2f,
+        [VoxelType.StemEnd]      = 0.6f
     };
 
     void InitRules()
     {
-        rules = new()
+        rule = new()
         {
-            /* ── stems (flowers removed from 'up') ── */
             [VoxelType.StemStraight] = new ModuleRule(
-                up   : AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.StemFork, VoxelType.StemEnd, VoxelType.Empty),
-                down : AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.Empty),
-                sides: AnyOf(VoxelType.Leaf, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.Empty)
+                up   : Str(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
+                           VoxelType.StemFork, VoxelType.StemEnd, VoxelType.Empty),
+                down : Str(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
+                           VoxelType.Empty),
+                sides: Str(VoxelType.StemTurnX, VoxelType.StemTurnZ, VoxelType.Empty)
             ),
             [VoxelType.StemTurnX] = new ModuleRule(
-                up   : AnyOf(VoxelType.Empty, VoxelType.StemStraight),
-                down : AnyOf(VoxelType.StemStraight),
-                sides: AnyOf(VoxelType.Leaf, VoxelType.StemTurnZ, VoxelType.StemStraight,
-                             VoxelType.Empty)
+                up   : Str(VoxelType.Empty, VoxelType.StemStraight),
+                down : Str(VoxelType.StemStraight),
+                sides: Str(VoxelType.StemTurnZ, VoxelType.StemStraight, VoxelType.Empty)
             ),
             [VoxelType.StemTurnZ] = new ModuleRule(
-                up   : AnyOf(VoxelType.Empty, VoxelType.StemStraight),
-                down : AnyOf(VoxelType.StemStraight),
-                sides: AnyOf(VoxelType.Leaf, VoxelType.StemTurnX, VoxelType.StemStraight,
-                             VoxelType.Empty)
+                up   : Str(VoxelType.Empty, VoxelType.StemStraight),
+                down : Str(VoxelType.StemStraight),
+                sides: Str(VoxelType.StemTurnX, VoxelType.StemStraight, VoxelType.Empty)
             ),
             [VoxelType.StemFork] = new ModuleRule(
-                up   : AnyOf(VoxelType.StemStraight, VoxelType.StemEnd, VoxelType.Empty),
-                down : AnyOf(VoxelType.StemStraight),
-                sides: AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.Leaf, VoxelType.Empty)
+                up   : Str(VoxelType.StemStraight, VoxelType.StemEnd, VoxelType.Empty),
+                down : Str(VoxelType.StemStraight),
+                sides: Str(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
+                           VoxelType.Empty)
             ),
-            /* ── stem end ── */
             [VoxelType.StemEnd] = new ModuleRule(
-                up   : AnyOf(VoxelType.FlowerA, VoxelType.FlowerB, VoxelType.Empty),
-                down : AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                             VoxelType.StemFork),
-                sides: AnyOf(VoxelType.Leaf, VoxelType.FlowerA, VoxelType.FlowerB,
-                             VoxelType.Empty)
-            ),
-            /* ── leaf ── */
-            [VoxelType.Leaf] = new ModuleRule(
-                up   : Only(VoxelType.Empty),
-                down : AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                    VoxelType.StemFork),
-                // allow a stem next to me, not just air
-                sides: AnyOf(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
-                    VoxelType.StemFork, VoxelType.StemEnd)
-            ),
-
-            /* ── flowers ── */
-            [VoxelType.FlowerA] = new ModuleRule(
-                up   : Only(VoxelType.Empty),
-                down : AnyOf(VoxelType.StemEnd, VoxelType.StemStraight,
-                             VoxelType.StemTurnX, VoxelType.StemTurnZ, VoxelType.Leaf),
-                sides: AnyOf(VoxelType.Empty)
-            ),
-            [VoxelType.FlowerB] = new ModuleRule(
-                up   : Only(VoxelType.Empty),
-                down : AnyOf(VoxelType.StemEnd, VoxelType.StemStraight,
-                             VoxelType.StemTurnX, VoxelType.StemTurnZ, VoxelType.Leaf),
-                sides: AnyOf(VoxelType.Empty)
+                up   : Str(VoxelType.Empty),
+                down : Str(VoxelType.StemStraight, VoxelType.StemTurnX, VoxelType.StemTurnZ,
+                           VoxelType.StemFork),
+                sides: Str(VoxelType.Empty)
             )
         };
+
+        static string[] Str(params VoxelType[] t) => Array.ConvertAll(t, v => v.ToString());
     }
 
-    /* ───────────── WFC ───────────── */
-    void RunWFC()
+    /* ───────── BUILD STEMS ───────── */
+    void BuildStemSkeleton()
     {
         grid = new VoxelType?[GridSizeX, GridSizeY, GridSizeZ];
         var q = new Queue<Vector3Int>();
 
-        /* seed ground */
-        for (int x = 0; x < GridSizeX; ++x)
-            for (int z = 0; z < GridSizeZ; ++z)
+        // seed ground
+        for (int x = 0; x < GridSizeX; x++)
+            for (int z = 0; z < GridSizeZ; z++)
             {
-                if (UnityEngine.Random.value < .6f)      // more stems to start
+                if (UnityEngine.Random.value < GROUND_SEED)
                 { grid[x, 0, z] = VoxelType.StemStraight; q.Enqueue(new Vector3Int(x, 0, z)); }
                 else grid[x, 0, z] = VoxelType.Empty;
             }
 
-        /* propagate */
+        Vector3Int[] dir = { Vector3Int.up, Vector3Int.left, Vector3Int.right,
+                             new Vector3Int(0,0,1), new Vector3Int(0,0,-1) };
+
         while (q.Count > 0)
         {
             var cur = q.Dequeue();
-            foreach (var dir in Directions)
+            foreach (var d in dir)
             {
-                var n = cur + dir;
-                if (!InBounds(n) || grid[n.x, n.y, n.z] != null) continue;
+                var n = cur + d;
+                if (!Inside(n) || grid[n.x, n.y, n.z] != null) continue;
 
-                var candidates = new List<VoxelType> { VoxelType.Empty };
+                if (d != Vector3Int.up && UnityEngine.Random.value > SIDE_GROW) continue;
 
-                foreach (var t in rules.Keys)
-                    if (IsCompatible(t, n, dir))
-                        candidates.Add(t);
+                var opts = new List<VoxelType>();
+                foreach (var t in rule.Keys)
+                    if (Compatible(t, n, d)) opts.Add(t);
 
-                /* ➋ no leaves/flowers when going UP */
-                if (dir == Vector3Int.up)
-                    candidates.RemoveAll(v => v is VoxelType.Leaf or VoxelType.FlowerA or VoxelType.FlowerB);
-
-                var choice = WeightedRandom(candidates, weights);
+                if (d != Vector3Int.up) opts.Add(VoxelType.Empty);    // air sideways
+                // ← FIX: never add Empty when going up
+                var choice = Pick(opts);
                 grid[n.x, n.y, n.z] = choice;
 
-                if (choice is VoxelType.StemStraight or VoxelType.StemTurnX
-                                 or VoxelType.StemTurnZ  or VoxelType.StemFork)
-                    q.Enqueue(n);
+                if (IsStem(choice)) q.Enqueue(n);
             }
         }
     }
 
-    /* ─────── add blossoms on tips ─────── */
-    void ConvertColumnTips(float flowerChance = 0.7f, float endChance = 0.2f)
+    /* ───────── ADD LEAVES ───────── */
+    void AddLeaves()
     {
-        for (int x = 0; x < GridSizeX; ++x)
-            for (int z = 0; z < GridSizeZ; ++z)
-                for (int y = GridSizeY - 1; y >= 0; --y)
+        Vector3Int[] side = { Vector3Int.left, Vector3Int.right,
+                              new Vector3Int(0,0,1), new Vector3Int(0,0,-1) };
+        for (int x = 0; x < GridSizeX; x++)
+            for (int y = 0; y < GridSizeY; y++)
+                for (int z = 0; z < GridSizeZ; z++)
+                    if (IsStem(grid[x, y, z]))
+                        foreach (var d in side)
+                        {
+                            var n = new Vector3Int(x + d.x, y, z + d.z);
+                            if (!Inside(n) || grid[n.x, n.y, n.z] != VoxelType.Empty) continue;
+                            if (UnityEngine.Random.value < LEAF_RATE)
+                                grid[n.x, n.y, n.z] = VoxelType.Leaf;
+                        }
+    }
+
+    /* ───────── FLOWERS / ENDS ───────── */
+    void DecorateTips()
+    {
+        for (int x = 0; x < GridSizeX; x++)
+            for (int z = 0; z < GridSizeZ; z++)
+                for (int y = GridSizeY - 1; y >= 0; y--)
                 {
                     var v = grid[x, y, z];
-                    if (v == null || v == VoxelType.Empty) continue;
+                    if (!IsStem(v)) continue;
 
-                    if (v is VoxelType.StemStraight or VoxelType.StemTurnX or VoxelType.StemTurnZ)
-                    {
-                        float r = UnityEngine.Random.value;
-                        if      (r < flowerChance)
-                            grid[x, y, z] = UnityEngine.Random.value < .5f ? VoxelType.FlowerA : VoxelType.FlowerB;
-                        else if (r < flowerChance + endChance)
-                            grid[x, y, z] = VoxelType.StemEnd;
-                    }
-                    break;  // tip fixed, next column
+                    grid[x, y, z] = UnityEngine.Random.value < FLOWER_RATE
+                        ? (UnityEngine.Random.value < .5f ? VoxelType.FlowerA : VoxelType.FlowerB)
+                        : VoxelType.StemEnd;
+                    break;
                 }
     }
 
-    /* ───────────── SPAWN ───────────── */
-    void SpawnGrid()
+    /* ───────── SPAWN MESHES ───────── */
+    void Spawn()
     {
-        for (int x = 0; x < GridSizeX; ++x)
-            for (int y = 0; y < GridSizeY; ++y)
-                for (int z = 0; z < GridSizeZ; ++z)
+        for (int x = 0; x < GridSizeX; x++)
+            for (int y = 0; y < GridSizeY; y++)
+                for (int z = 0; z < GridSizeZ; z++)
                 {
-                    var t = grid[x, y, z];
-                    if (t == null || t == VoxelType.Empty) continue;
-                    if (!prefabMap.TryGetValue(t.Value, out var prefab) || prefab == null) continue;
+                    var t = grid[x, y, z]; if (t == null || t == VoxelType.Empty) continue;
+                    if (!pref.TryGetValue(t.Value, out var pf) || pf == null) continue;
 
                     var pos = transform.position +
                               Vector3.Scale(new Vector3(x, y, z), Vector3.one * VoxelSize);
+                    var rot = Quaternion.Euler(0, UnityEngine.Random.Range(0, 4) * 90, 0);
+                    var jitter = t is VoxelType.Leaf or VoxelType.FlowerA or VoxelType.FlowerB
+                                 ? new Vector3(UnityEngine.Random.Range(-.1f, .1f),
+                                               UnityEngine.Random.Range(-.05f, .05f),
+                                               UnityEngine.Random.Range(-.1f, .1f))
+                                 : Vector3.zero;
 
-                    Quaternion rot = Quaternion.Euler(0, UnityEngine.Random.Range(0, 4) * 90, 0);
-                    Vector3 jitter = (t == VoxelType.Leaf || t == VoxelType.FlowerA || t == VoxelType.FlowerB)
-                                     ? new Vector3(UnityEngine.Random.Range(-.1f, .1f),
-                                                   UnityEngine.Random.Range(-.05f, .05f),
-                                                   UnityEngine.Random.Range(-.1f, .1f))
-                                     : Vector3.zero;
-
-                    var go = Instantiate(prefab, pos + jitter, rot, transform);
+                    var go = Instantiate(pf, pos + jitter, rot, transform);
                     go.transform.localScale = Vector3.one * VoxelSize;
                 }
     }
 
-    /* ───────────── HELPERS ───────────── */
-    Vector3Int[] Directions => new[]
-    { Vector3Int.up, Vector3Int.down, Vector3Int.left, Vector3Int.right,
-      new Vector3Int(0,0,1), new Vector3Int(0,0,-1) };
+    /* ───────── UTILITY ───────── */
+    bool Inside(Vector3Int p) => p.x >= 0 && p.x < GridSizeX &&
+                                 p.y >= 0 && p.y < GridSizeY &&
+                                 p.z >= 0 && p.z < GridSizeZ;
 
-    bool InBounds(Vector3Int p) =>
-        p.x >= 0 && p.x < GridSizeX &&
-        p.y >= 0 && p.y < GridSizeY &&
-        p.z >= 0 && p.z < GridSizeZ;
+    bool IsStem(VoxelType? v) => v is VoxelType.StemStraight or VoxelType.StemTurnX
+                                  or VoxelType.StemTurnZ  or VoxelType.StemFork;
 
-    VoxelType GetVoxelAt(Vector3Int p) =>
-        !InBounds(p) ? VoxelType.Empty : grid[p.x, p.y, p.z] ?? VoxelType.Empty;
-
-    bool IsCompatible(VoxelType candidate, Vector3Int pos, Vector3Int dir)
+    bool Compatible(VoxelType cand, Vector3Int pos, Vector3Int d)
     {
-        var need = dir == Vector3Int.up   ? rules[candidate].down
-                 : dir == Vector3Int.down ? rules[candidate].up
-                 :                          rules[candidate].sides;
-        var neighbour = GetVoxelAt(pos - dir);
-        return Array.Exists(need, s => s == neighbour.ToString());
+        var need = d == Vector3Int.up   ? rule[cand].down
+                 : d == Vector3Int.down ? rule[cand].up
+                 :                        rule[cand].sides;
+        return Array.Exists(need, s => s == Get(pos - d).ToString());
     }
 
-    static VoxelType WeightedRandom(List<VoxelType> opts,
-                                    Dictionary<VoxelType, float> w)
+    VoxelType Get(Vector3Int p) => !Inside(p) ? VoxelType.Empty
+                                : grid[p.x, p.y, p.z] ?? VoxelType.Empty;
+
+    VoxelType Pick(List<VoxelType> opts)
     {
-        float total = 0; foreach (var o in opts) total += w.TryGetValue(o, out var v) ? v : 1f;
-        float r = UnityEngine.Random.value * total;
+        float sum = 0; foreach (var o in opts) sum += weight.TryGetValue(o, out var v) ? v : 1f;
+        float r = UnityEngine.Random.value * sum;
         foreach (var o in opts)
         {
-            r -= w.TryGetValue(o, out var v) ? v : 1f;
+            r -= weight.TryGetValue(o, out var v) ? v : 1f;
             if (r <= 0) return o;
         }
         return opts[^1];
