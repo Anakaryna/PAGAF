@@ -408,11 +408,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   StemStraightPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
-  StemTurnXPrefab: {fileID: 6988909490117729085, guid: 9d5bf3a53c19c6d489b77d62dd510b04,
+  StemTurnXPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
-  StemTurnZPrefab: {fileID: 6988909490117729085, guid: 1e92078fe5ae3454cbdc0210f378cce7,
+  StemTurnZPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
-  StemForkPrefab: {fileID: 6988909490117729085, guid: e2a983bbd158ae84591e6bdd32381e60,
+  StemForkPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
   StemEndPrefab: {fileID: 6988909490117729085, guid: e53f9580c3b843f4f8da129c9f8be12d,
     type: 3}
@@ -424,9 +424,9 @@ MonoBehaviour:
     type: 3}
   EmptyPrefab: {fileID: 3212790041889562079, guid: ee00be452dab25548a766866e1d563ec,
     type: 3}
-  GridSizeX: 20
+  GridSizeX: 30
   GridSizeY: 50
-  GridSizeZ: 20
+  GridSizeZ: 30
   VoxelSize: 0.2
 --- !u!4 &727243492
 Transform:
