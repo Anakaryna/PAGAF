@@ -408,11 +408,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   StemStraightPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
-  StemTurnXPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
+  StemTurnXPrefab: {fileID: 6988909490117729085, guid: 9d5bf3a53c19c6d489b77d62dd510b04,
     type: 3}
-  StemTurnZPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
+  StemTurnZPrefab: {fileID: 6988909490117729085, guid: 1e92078fe5ae3454cbdc0210f378cce7,
     type: 3}
-  StemForkPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
+  StemForkPrefab: {fileID: 6988909490117729085, guid: e2a983bbd158ae84591e6bdd32381e60,
     type: 3}
   StemEndPrefab: {fileID: 6988909490117729085, guid: e53f9580c3b843f4f8da129c9f8be12d,
     type: 3}
