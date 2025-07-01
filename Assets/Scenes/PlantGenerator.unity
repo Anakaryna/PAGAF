@@ -388,7 +388,7 @@ GameObject:
   - component: {fileID: 727243492}
   - component: {fileID: 727243491}
   m_Layer: 0
-  m_Name: WFC
+  m_Name: Generator
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
