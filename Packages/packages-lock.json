@@ -1,5 +1,13 @@
 {
   "dependencies": {
+    "com.kink3d.mirrors": {
+      "version": "file:C:/Users/kouih/Downloads/Cours/PAGAF/kMirrors-master",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.unity.render-pipelines.universal": "7.x.x"
+      }
+    },
     "com.unity.burst": {
       "version": "1.8.18",
       "depth": 1,
@@ -163,6 +171,15 @@
       "dependencies": {
         "com.unity.modules.ui": "1.0.0",
         "com.unity.modules.imgui": "1.0.0"
+      }
+    },
+    "com.unity.visualeffectgraph": {
+      "version": "14.0.11",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.shadergraph": "14.0.11",
+        "com.unity.render-pipelines.core": "14.0.11"
       }
     },
     "com.unity.visualscripting": {
