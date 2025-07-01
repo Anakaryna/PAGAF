@@ -159,7 +159,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -406,26 +406,28 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5a651dfe4e9819a44bf10000060964aa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  Width: 20
-  Height: 20
-  Seed: 1234
-  Ground: {fileID: 3621156429765700933, guid: 75a18a4a0483bd24fac10745fb9c6c7f, type: 3}
-  Bridge: {fileID: 6375901379523258693, guid: aef0c05ee60182c40b56f85304a84027, type: 3}
-  BridgeLarge: {fileID: 2274259776959635929, guid: 0e8152fe58379e843be49840febab4dd,
+  StemStraightPrefab: {fileID: 6988909490117729085, guid: f73a30222f5ecf646860cbffe0f5e64d,
     type: 3}
-  BridgeSmall: {fileID: 1198318726716295150, guid: 269887260d31d1041b658681cec01a0e,
+  StemTurnXPrefab: {fileID: 6988909490117729085, guid: 9d5bf3a53c19c6d489b77d62dd510b04,
     type: 3}
-  Castle: {fileID: 7233472409397745876, guid: afe06cfa5721b824792de9e11596626b, type: 3}
-  Column: {fileID: 6125584991742352605, guid: 0694c2be9a9eae9418f8587aa5efbb64, type: 3}
-  DoubleDoor: {fileID: 1551434730518095635, guid: 0b52eea75f6c8d04abacc504f9570dc6,
+  StemTurnZPrefab: {fileID: 6988909490117729085, guid: 1e92078fe5ae3454cbdc0210f378cce7,
     type: 3}
-  SimpleDoor: {fileID: 67364546214547229, guid: 6336862f86e872944895b7c5569e9988,
+  StemForkPrefab: {fileID: 6988909490117729085, guid: e2a983bbd158ae84591e6bdd32381e60,
     type: 3}
-  HouseA: {fileID: 1370497969176490678, guid: 57ef16ee7712da6409e8836bf6001e3c, type: 3}
-  HouseB: {fileID: 3395842480841397322, guid: 8c2cabd72c2871e4fa25d9761a86fef5, type: 3}
-  TowerA: {fileID: 3403706665868283640, guid: 0b0315988d4640f4f8028117c16b74e1, type: 3}
-  TowerB: {fileID: 9084275281703877156, guid: 9ef95eb74fbef4145bc387e83b897495, type: 3}
-  Wall: {fileID: 6445194501943617159, guid: 4f6122b02aea27540b60ee221b7415e5, type: 3}
+  StemEndPrefab: {fileID: 6988909490117729085, guid: e53f9580c3b843f4f8da129c9f8be12d,
+    type: 3}
+  LeafPrefab: {fileID: 4059509634946468013, guid: c00a77eecb814e44096c2f7bcf3db7c9,
+    type: 3}
+  FlowerAPrefab: {fileID: 4505418683574996284, guid: 29c6f85e9ea22454fba784738d5a20c9,
+    type: 3}
+  FlowerBPrefab: {fileID: 5655188944143186346, guid: 67ecfdf02e140f846a83a1c73b9f015a,
+    type: 3}
+  EmptyPrefab: {fileID: 3212790041889562079, guid: ee00be452dab25548a766866e1d563ec,
+    type: 3}
+  GridSizeX: 30
+  GridSizeY: 50
+  GridSizeZ: 30
+  VoxelSize: 0.2
 --- !u!4 &727243492
 Transform:
   m_ObjectHideFlags: 0
@@ -435,7 +437,7 @@ Transform:
   m_GameObject: {fileID: 727243490}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 3.6825278, y: -0.92212486, z: -3.0370402}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
