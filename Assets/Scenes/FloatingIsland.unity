@@ -426,6 +426,78 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1212375714
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1212375716}
+  - component: {fileID: 1212375715}
+  m_Layer: 0
+  m_Name: WFC
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1212375715
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1212375714}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6a2db1b7a92546219a722c3b54af115c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  width: 50
+  height: 50
+  cellSize: {x: 2, y: 2}
+  tiles:
+  - name: Void
+    prefab: {fileID: 7637309704861322505, guid: 8dd48e8e5e8487d408d52ed7b6d3a704,
+      type: 3}
+    weight: 3.28
+  - name: Island
+    prefab: {fileID: 1297828201401472441, guid: d67e90b2f0a565040be82885b27bacf5,
+      type: 3}
+    weight: 5.19
+  - name: Water
+    prefab: {fileID: 8995616537185554457, guid: 20ca70599f8b727469c54fa62f213f7e,
+      type: 3}
+    weight: 2.55
+  - name: WaterFall
+    prefab: {fileID: 6989295486717946627, guid: 5dcbb597d6214124db8e7a577c7b7c15,
+      type: 3}
+    weight: 0.7
+  - name: Tree
+    prefab: {fileID: 3237646242515714151, guid: 35a31e882adb84348ba4d8b68224580d,
+      type: 3}
+    weight: 3.16
+  - name: Animal
+    prefab: {fileID: 7564987849417079447, guid: 0440d4216590f04479255ce19f55139e,
+      type: 3}
+    weight: 1.51
+--- !u!4 &1212375716
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1212375714}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -2.2065644, y: 6.011495, z: 8.574484}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -433,3 +505,4 @@ SceneRoots:
   - {fileID: 330585546}
   - {fileID: 410087041}
   - {fileID: 832575519}
+  - {fileID: 1212375716}
