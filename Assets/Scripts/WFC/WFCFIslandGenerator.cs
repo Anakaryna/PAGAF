@@ -65,15 +65,20 @@ public class WFCFIslandGenerator : MonoBehaviour
     {
         bool aAir = a.Equals("Air",       StringComparison.OrdinalIgnoreCase);
         bool bAir = b.Equals("Air",       StringComparison.OrdinalIgnoreCase);
-        if (aAir || bAir)
-            return aAir && bAir;
+        if (aAir && bAir) return true;
+        if (aAir) return b.Equals("Island", StringComparison.OrdinalIgnoreCase);
+        if (bAir) return a.Equals("Island", StringComparison.OrdinalIgnoreCase);
 
-        bool aDecor = a.Equals("Tree",    StringComparison.OrdinalIgnoreCase)
-                   || a.Equals("Animal",  StringComparison.OrdinalIgnoreCase);
-        bool bDecor = b.Equals("Tree",    StringComparison.OrdinalIgnoreCase)
-                   || b.Equals("Animal",  StringComparison.OrdinalIgnoreCase);
-        if (aDecor) return b.Equals("Island", StringComparison.OrdinalIgnoreCase);
-        if (bDecor) return a.Equals("Island", StringComparison.OrdinalIgnoreCase);
+
+
+        bool aDecor = a.Equals("Tree", StringComparison.OrdinalIgnoreCase) || a.Equals("Animal", StringComparison.OrdinalIgnoreCase);
+        bool bDecor = b.Equals("Tree", StringComparison.OrdinalIgnoreCase) || b.Equals("Animal", StringComparison.OrdinalIgnoreCase);
+
+        if (aDecor && bDecor) return true; // tree/animal next to each other = ok
+        if (aDecor) return b.Equals("Island", StringComparison.OrdinalIgnoreCase) || b.Equals("Water", StringComparison.OrdinalIgnoreCase);
+        if (bDecor) return a.Equals("Island", StringComparison.OrdinalIgnoreCase) || a.Equals("Water", StringComparison.OrdinalIgnoreCase);
+
+
         
         bool aFall  = a.Equals("WaterFall",   StringComparison.OrdinalIgnoreCase);
         bool bFall  = b.Equals("WaterFall",   StringComparison.OrdinalIgnoreCase);
