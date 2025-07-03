@@ -15,7 +15,7 @@ public class WFCFIslandGenerator : MonoBehaviour
     public Vector2 cellSize = new Vector2(2f, 2f);
 
     [Header("Your Six Tile Prefabs")]
-    [Tooltip("0: Air, 1: Island, 2: Water, 3: WaterFall, 4: Tree, 5: Animal")]
+    [Tooltip("0: Air, 1: Island, 2: Water, 3: Bubble, 4: Tree, 5: Animal")]
     public TileDef[] tiles = new TileDef[6];
 
     [Serializable]
@@ -80,10 +80,10 @@ public class WFCFIslandGenerator : MonoBehaviour
 
 
         
-        bool aFall  = a.Equals("WaterFall",   StringComparison.OrdinalIgnoreCase);
-        bool bFall  = b.Equals("WaterFall",   StringComparison.OrdinalIgnoreCase);
-        if (aFall)  return b.Equals("Water",  StringComparison.OrdinalIgnoreCase);
-        if (bFall)  return a.Equals("Water",  StringComparison.OrdinalIgnoreCase);
+        bool aBubble  = a.Equals("Bubble",   StringComparison.OrdinalIgnoreCase);
+        bool bBubble  = b.Equals("Bubble",   StringComparison.OrdinalIgnoreCase);
+        if (aBubble)  return b.Equals("Water",  StringComparison.OrdinalIgnoreCase);
+        if (bBubble)  return a.Equals("Water",  StringComparison.OrdinalIgnoreCase);
 
         // Island ↔ Water, Island ↔ Island, Water ↔ Water all allowed
         return true;
@@ -126,11 +126,31 @@ public class WFCFIslandGenerator : MonoBehaviour
     {
         int T = tiles.Length;
         wave = new bool[width, height, T];
+
+        float cx = width  / 2f;
+        float cy = height / 2f;
+        float radius = Mathf.Min(width, height) / 2f;
+
         for (int x = 0; x < width;  x++)
         for (int y = 0; y < height; y++)
-        for (int t = 0; t < T; t++)
-            wave[x, y, t] = true;
+        {
+            float dx = x - cx;
+            float dy = y - cy;
+            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+            bool insideCircle = dist <= radius;
+
+            for (int t = 0; t < T; t++)
+            {
+                // If outside circle, only allow "Air" tile (index 0)
+                if (!insideCircle)
+                    wave[x, y, t] = (t == 0); // Air only
+                else
+                    wave[x, y, t] = true; // All tiles possible
+            }
+        }
     }
+
 
     /// <summary>
     /// Runs the Wave Function Collapse algorithm.

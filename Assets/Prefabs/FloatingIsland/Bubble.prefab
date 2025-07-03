@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 2142896820129444630}
   - component: {fileID: 783351955676878793}
   m_Layer: 0
-  m_Name: WaterFall
+  m_Name: Bubble
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

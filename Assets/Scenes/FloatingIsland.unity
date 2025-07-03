@@ -471,7 +471,7 @@ MonoBehaviour:
     prefab: {fileID: 8995616537185554457, guid: 20ca70599f8b727469c54fa62f213f7e,
       type: 3}
     weight: 4.05
-  - name: WaterFall
+  - name: Bubble
     prefab: {fileID: 6989295486717946627, guid: 5dcbb597d6214124db8e7a577c7b7c15,
       type: 3}
     weight: 10
