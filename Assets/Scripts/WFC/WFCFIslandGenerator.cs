@@ -106,6 +106,7 @@ public class WFCFIslandGenerator : MonoBehaviour
         else
         {
             InstantiateTiles();
+            FillAirWithWaterOrBubble();
         }
     }
 
@@ -236,6 +237,72 @@ public class WFCFIslandGenerator : MonoBehaviour
         for (int t = 0; t < T; t++) if (wave[x, y, t]) return t;
         return 0;
     }
+    
+    /// <summary>
+    /// Fills pure Air cells with Water or Bubble based on neighbor counts
+    /// </summary>
+    void FillAirWithWaterOrBubble()
+    {
+        int airIndex = 0;
+        int waterIndex = 2;
+        int bubbleIndex = 3;
+
+        for (int x = 0; x < width; x++)
+        for (int y = 0; y < height; y++)
+        {
+            // Check if this cell is pure Air
+            if (!IsCollapsedTo(x, y, airIndex)) continue;
+
+            // Count how many neighbors are Water
+            int waterNeighbors = 0;
+            for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                if (dx == 0 && dy == 0) continue;
+                int nx = x + dx;
+                int ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
+                    if (IsCollapsedTo(nx, ny, waterIndex))
+                        waterNeighbors++;
+                }
+            }
+
+            // Only replace Air if surrounded by at least 2 Water
+            if (waterNeighbors >= 2)
+            {
+                int chosen = (rng.NextDouble() < 0.8f) ? bubbleIndex : waterIndex;
+                SetTile(x, y, chosen);
+            }
+        }
+
+        // Regenerate with updated wave
+        ClearPrevious();
+        InstantiateTiles();
+    }
+
+    /// <summary>
+    /// Checks if the cell at (x,y) is fully collapsed to a specific tile index
+    /// </summary>
+    bool IsCollapsedTo(int x, int y, int tileIndex)
+    {
+        int count = 0;
+        for (int t = 0; t < tiles.Length; t++)
+            if (wave[x, y, t]) count++;
+
+        return count == 1 && wave[x, y, tileIndex];
+    }
+
+    /// <summary>
+    /// Sets the tile at (x,y) to a specific tile index, collapsing it
+    /// </summary>
+    void SetTile(int x, int y, int tileIndex)
+    {
+        for (int t = 0; t < tiles.Length; t++)
+            wave[x, y, t] = (t == tileIndex);
+    }
+
+
     
     /// <summary>
     /// Propagates the constraints of the collapsed cell to its neighbors

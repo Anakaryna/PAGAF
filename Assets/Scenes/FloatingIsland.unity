@@ -455,8 +455,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6a2db1b7a92546219a722c3b54af115c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  width: 80
-  height: 80
+  width: 50
+  height: 50
   cellSize: {x: 2, y: 2}
   tiles:
   - name: Void
@@ -474,7 +474,7 @@ MonoBehaviour:
   - name: Bubble
     prefab: {fileID: 6989295486717946627, guid: 5dcbb597d6214124db8e7a577c7b7c15,
       type: 3}
-    weight: 10
+    weight: 2.7
   - name: Tree
     prefab: {fileID: 3237646242515714151, guid: 35a31e882adb84348ba4d8b68224580d,
       type: 3}
