@@ -1,256 +1,9 @@
-﻿// using UnityEngine;
-// using Unity.Collections;
-// using Unity.Jobs;
-// using Unity.Mathematics;
-// using System.Collections.Generic;
-//
-// public class OptimizedFishManager : MonoBehaviour
-// {
-//     public static OptimizedFishManager Instance { get; private set; }
-//
-//     [Header("Spatial Hash")]
-//     public float cellSize = 5f;
-//     public int   gridWidth  = 100;
-//     public int   gridHeight = 100;
-//
-//     [Header("Job Settings")]
-//     public int jobBatchSize  = 32;
-//     public int maxFishCount  = 1000;
-//
-//     [Header("Boids Parameters")]
-//     public float neighborRadius            = 3f;
-//     public float separationRadius          = 1.5f;
-//     public float separationWeight          = 1.5f;
-//     public float alignmentWeight           = 1f;
-//     public float cohesionWeight            = 1f;
-//     public float targetWeight              = 2f;
-//     public float baseAcceleration          = 2f;
-//     public float boostAcceleration         = 8f;
-//     public int   maxNeighbors              = 20;
-//     public bool  onlySchoolWithSameSpecies = true;
-//     public bool  avoidLargerSpecies        = true;
-//
-//     [Header("Obstacle Avoidance")]
-//     public float lookAheadDistance      = 5f;
-//     public float emergencyDistance      = 1.5f;
-//     public float avoidanceMemoryTime    = 2f;
-//     public float clearPathCheckDistance = 8f;
-//
-//     [Header("Debug")]
-//     public bool showDebugInfo = false;
-//
-//     readonly List<OptimizedFishController> allFish = new List<OptimizedFishController>();
-//
-//     // Native arrays for job I/O
-//     NativeArray<FishData> fishDataArray;
-//     NativeArray<float3>   desiredDirections;
-//     NativeArray<float3>   smoothedDesiredDirections;
-//     NativeArray<float>    accelerations;
-//     NativeArray<float3>   avoidanceDirections;
-//     NativeArray<bool>     avoidingFlags;
-//     NativeArray<bool>     emergencyFlags;
-//     NativeArray<float>    avoidanceMemoryTimers;
-//     NativeParallelMultiHashMap<int,int> spatialHashMap;
-//     NativeArray<int>      hashKeys;
-//
-//     JobHandle obstacleJobHandle;
-//     JobHandle boidsJobHandle;
-//     bool jobsScheduled = false;
-//
-//     void Awake()
-//     {
-//         if (Instance == null)
-//         {
-//             Instance = this;
-//             DontDestroyOnLoad(gameObject);
-//             AllocateArrays();
-//         }
-//         else
-//         {
-//             Destroy(gameObject);
-//         }
-//     }
-//
-//     void AllocateArrays()
-//     {
-//         // Dispose old arrays if they exist (fixes persistent leaks)
-//         if (fishDataArray.IsCreated)            fishDataArray.Dispose();
-//         if (desiredDirections.IsCreated)        desiredDirections.Dispose();
-//         if (smoothedDesiredDirections.IsCreated) smoothedDesiredDirections.Dispose();
-//         if (accelerations.IsCreated)            accelerations.Dispose();
-//         if (avoidanceDirections.IsCreated)      avoidanceDirections.Dispose();
-//         if (avoidingFlags.IsCreated)            avoidingFlags.Dispose();
-//         if (emergencyFlags.IsCreated)           emergencyFlags.Dispose();
-//         if (avoidanceMemoryTimers.IsCreated)    avoidanceMemoryTimers.Dispose();
-//         if (spatialHashMap.IsCreated)           spatialHashMap.Dispose();
-//         if (hashKeys.IsCreated)                 hashKeys.Dispose();
-//
-//         fishDataArray            = new NativeArray<FishData>(maxFishCount, Allocator.Persistent);
-//         desiredDirections        = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-//         smoothedDesiredDirections= new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-//         accelerations            = new NativeArray<float>(   maxFishCount, Allocator.Persistent);
-//         avoidanceDirections      = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-//         avoidingFlags            = new NativeArray<bool>(    maxFishCount, Allocator.Persistent);
-//         emergencyFlags           = new NativeArray<bool>(    maxFishCount, Allocator.Persistent);
-//         avoidanceMemoryTimers    = new NativeArray<float>(   maxFishCount, Allocator.Persistent);
-//         spatialHashMap           = new NativeParallelMultiHashMap<int,int>(maxFishCount * 4, Allocator.Persistent);
-//         hashKeys                 = new NativeArray<int>(     maxFishCount, Allocator.Persistent);
-//     }
-//
-//     void Update()
-//     {
-//         if (allFish.Count == 0) return;
-//
-//         // 1) Complete last‐frame jobs before reading
-//         if (jobsScheduled)
-//         {
-//             boidsJobHandle.Complete();
-//             obstacleJobHandle.Complete();
-//             ConsumeJobResults();
-//         }
-//
-//         // 2) Build input data
-//         BuildInputData();
-//
-//         // 3) Schedule obstacle avoidance
-//         var obstacleJob = new ObstacleAvoidanceJob
-//         {
-//             fishData               = fishDataArray,
-//             lookAheadDistance      = lookAheadDistance,
-//             emergencyDistance      = emergencyDistance,
-//             avoidanceMemoryTime    = avoidanceMemoryTime,
-//             clearPathCheckDistance = clearPathCheckDistance,
-//             deltaTime              = Time.deltaTime,
-//             avoidanceDirections    = avoidanceDirections,
-//             avoidingFlags          = avoidingFlags,
-//             emergencyFlags         = emergencyFlags,
-//             avoidanceMemoryTimers  = avoidanceMemoryTimers
-//         };
-//         obstacleJobHandle = obstacleJob.Schedule(allFish.Count, jobBatchSize);
-//
-//         // 4) Schedule boids behavior, dependent on obstacle job
-//         var boidsJob = new EnhancedBoidsJob
-//         {
-//             fishData                  = fishDataArray,
-//             avoidanceDirections       = avoidanceDirections,
-//             avoidingFlags             = avoidingFlags,
-//             emergencyFlags            = emergencyFlags,
-//             spatialHashMap            = spatialHashMap,
-//             neighborRadius            = neighborRadius,
-//             separationRadius          = separationRadius,
-//             separationWeight          = separationWeight,
-//             alignmentWeight           = alignmentWeight,
-//             cohesionWeight            = cohesionWeight,
-//             targetWeight              = targetWeight,
-//             baseAcceleration          = baseAcceleration,
-//             boostAcceleration         = boostAcceleration,
-//             maxNeighbors              = maxNeighbors,
-//             onlySchoolWithSameSpecies = onlySchoolWithSameSpecies,
-//             avoidLargerSpecies        = avoidLargerSpecies,
-//             cellSize                  = cellSize,
-//             gridWidth                 = gridWidth,
-//             gridHeight                = gridHeight,
-//             deltaTime                 = Time.deltaTime,
-//             desiredDirections         = desiredDirections,
-//             accelerations             = accelerations,
-//             smoothedDesiredDirections = smoothedDesiredDirections
-//         };
-//         boidsJobHandle = boidsJob.Schedule(allFish.Count, jobBatchSize, obstacleJobHandle);
-//
-//         jobsScheduled = true;
-//     }
-//
-//     void ConsumeJobResults()
-//     {
-//         for (int i = 0; i < allFish.Count; i++)
-//         {
-//             allFish[i].UpdateFromJobResult(
-//                 desiredDirections[i],
-//                 smoothedDesiredDirections[i],
-//                 accelerations[i],
-//                 avoidingFlags[i],
-//                 emergencyFlags[i],
-//                 avoidanceMemoryTimers[i],
-//                 avoidanceDirections[i]
-//             );
-//         }
-//     }
-//
-//     void BuildInputData()
-//     {
-//         for (int i = 0; i < allFish.Count; i++)
-//         {
-//             allFish[i].position = allFish[i].transform.position;
-//             fishDataArray[i]    = allFish[i].GetFishData();
-//         }
-//
-//         spatialHashMap.Clear();
-//         for (int i = 0; i < allFish.Count; i++)
-//         {
-//             float3 p = fishDataArray[i].position;
-//             int gx = math.clamp((int)(p.x / cellSize), 0, gridWidth-1);
-//             int gz = math.clamp((int)(p.z / cellSize), 0, gridHeight-1);
-//             int h = gx + gz * gridWidth;
-//             spatialHashMap.Add(h, i);
-//             hashKeys[i] = h;
-//         }
-//     }
-//
-//     public void RegisterFish(OptimizedFishController fish)
-//     {
-//         if (allFish.Count < maxFishCount && !allFish.Contains(fish))
-//         {
-//             fish.fishIndex = allFish.Count;
-//             allFish.Add(fish);
-//         }
-//     }
-//
-//     public void UnregisterFish(OptimizedFishController fish)
-//     {
-//         if (allFish.Remove(fish))
-//         {
-//             for (int i = 0; i < allFish.Count; i++)
-//                 allFish[i].fishIndex = i;
-//         }
-//     }
-//
-//     void OnDestroy()
-//     {
-//         // Ensure completion before disposing
-//         if (jobsScheduled)
-//         {
-//             boidsJobHandle.Complete();
-//             obstacleJobHandle.Complete();
-//         }
-//
-//         // Dispose everything
-//         if (fishDataArray.IsCreated)            fishDataArray.Dispose();
-//         if (desiredDirections.IsCreated)        desiredDirections.Dispose();
-//         if (smoothedDesiredDirections.IsCreated) smoothedDesiredDirections.Dispose();
-//         if (accelerations.IsCreated)            accelerations.Dispose();
-//         if (avoidanceDirections.IsCreated)      avoidanceDirections.Dispose();
-//         if (avoidingFlags.IsCreated)            avoidingFlags.Dispose();
-//         if (emergencyFlags.IsCreated)           emergencyFlags.Dispose();
-//         if (avoidanceMemoryTimers.IsCreated)    avoidanceMemoryTimers.Dispose();
-//         if (spatialHashMap.IsCreated)           spatialHashMap.Dispose();
-//         if (hashKeys.IsCreated)                 hashKeys.Dispose();
-//     }
-//
-//     void OnGUI()
-//     {
-//         if (!showDebugInfo || !Application.isPlaying) return;
-//
-//         GUILayout.BeginArea(new Rect(10, Screen.height - 150, 300, 140));
-//         GUILayout.Box("Fish Manager Debug");
-//         GUILayout.Label($"Count: {allFish.Count}");
-//         GUILayout.Label($"Neighbor R: {neighborRadius:F1}");
-//         GUILayout.Label($"Cell Size: {cellSize:F1}");
-//         GUILayout.Label($"Grid: {gridWidth}×{gridHeight}");
-//         GUILayout.Label($"Batch Size: {jobBatchSize}");
-//         GUILayout.Label($"Max Fish: {maxFishCount}");
-//         GUILayout.EndArea();
-//     }
-// }
+﻿using UnityEngine;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
+using System.Collections.Generic;
+
 using UnityEngine;
 using Unity.Collections;
 using Unity.Jobs;
@@ -269,25 +22,38 @@ public class OptimizedFishManager : MonoBehaviour
     [Header("Job Settings")]
     public int jobBatchSize = 32;
     public int maxFishCount = 1000;
+    public int maxVirtualFish = 500; // Reserve space for virtual fish
 
-    [Header("Boids Parameters - TIGHT SCHOOL FORMATION")]
-    public float neighborRadius = 4f;        // See enough neighbors
-    public float separationRadius = 1.2f;    // Small personal space
-    public float separationWeight = 1.5f;    // Gentle separation
-    public float alignmentWeight = 2.0f;     // Strong alignment for tight formation
-    public float cohesionWeight = 2.5f;      // Strong pull together  
-    public float targetWeight = 3.0f;        // Strong target following
+    [Header("Boids Parameters - NORMAL SPREAD SCHOOL")]
+    public float neighborRadius = 5f;
+    public float separationRadius = 2.2f;
+    public float separationWeight = 2.0f;
+    public float alignmentWeight = 1.0f;
+    public float cohesionWeight = 0.8f;
+    public float targetWeight = 2.5f;
     public float baseAcceleration = 2f;
-    public float boostAcceleration = 6f;     // Reduced for smoother movement
-    public int maxNeighbors = 12;            // Fewer neighbors for performance
+    public float boostAcceleration = 8f;
+    public int maxNeighbors = 15;
     public bool onlySchoolWithSameSpecies = true;
     public bool avoidLargerSpecies = true;
 
+    [Header("Obstacle Avoidance as Virtual Fish")]
+    public LayerMask obstacleLayer = 1;
+    public string obstacleTag = "Obstacle";
+    public float obstacleDetectionRadius = 15f;
+    public float virtualFishRadius = 2.5f;
+    public int virtualFishRings = 3; // Multiple rings around obstacles
+    public int virtualFishPerRing = 12; // More fish per ring
+    public float ringSpacing = 1.5f; // Distance between rings
+
     [Header("Debug")]
     public bool showDebugInfo = true;
-    public bool showSeparationDebug = true;
+    public bool showObstacleDebug = true;
+    public bool showVirtualFish = false; // Gizmo display
 
     readonly List<OptimizedFishController> allFish = new List<OptimizedFishController>();
+    private List<GameObject> detectedObstacles = new List<GameObject>();
+    private List<FishData> virtualFishData = new List<FishData>();
 
     NativeArray<FishData> fishDataArray;
     NativeArray<float3> desiredDirections;
@@ -323,17 +89,19 @@ public class OptimizedFishManager : MonoBehaviour
     {
         DisposeArrays();
 
-        fishDataArray = new NativeArray<FishData>(maxFishCount, Allocator.Persistent);
-        desiredDirections = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-        smoothedDesiredDirections = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-        accelerations = new NativeArray<float>(maxFishCount, Allocator.Persistent);
-        avoidanceDirections = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-        avoidingFlags = new NativeArray<bool>(maxFishCount, Allocator.Persistent);
-        emergencyFlags = new NativeArray<bool>(maxFishCount, Allocator.Persistent);
-        avoidanceMemoryTimers = new NativeArray<float>(maxFishCount, Allocator.Persistent);
-        stableAvoidanceDirections = new NativeArray<float3>(maxFishCount, Allocator.Persistent);
-        avoidanceDirectionTimers = new NativeArray<float>(maxFishCount, Allocator.Persistent);
-        spatialHashMap = new NativeParallelMultiHashMap<int, int>(maxFishCount * 4, Allocator.Persistent);
+        int totalCapacity = maxFishCount + maxVirtualFish;
+        
+        fishDataArray = new NativeArray<FishData>(totalCapacity, Allocator.Persistent);
+        desiredDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
+        smoothedDesiredDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
+        accelerations = new NativeArray<float>(totalCapacity, Allocator.Persistent);
+        avoidanceDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
+        avoidingFlags = new NativeArray<bool>(totalCapacity, Allocator.Persistent);
+        emergencyFlags = new NativeArray<bool>(totalCapacity, Allocator.Persistent);
+        avoidanceMemoryTimers = new NativeArray<float>(totalCapacity, Allocator.Persistent);
+        stableAvoidanceDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
+        avoidanceDirectionTimers = new NativeArray<float>(totalCapacity, Allocator.Persistent);
+        spatialHashMap = new NativeParallelMultiHashMap<int, int>(totalCapacity * 4, Allocator.Persistent);
     }
 
     void Update()
@@ -347,13 +115,17 @@ public class OptimizedFishManager : MonoBehaviour
             ConsumeJobResults();
         }
 
+        // Update obstacles and create virtual fish
+        UpdateObstaclesAndVirtualFish();
+        
         BuildInputData();
 
-        // DEBUG: Check spatial hash and separation
-        if (showSeparationDebug && Time.frameCount % 120 == 0)
+        if (showObstacleDebug && Time.frameCount % 120 == 0)
         {
-            DebugSpatialHash();
+            DebugObstacleSystem();
         }
+
+        int totalFishCount = allFish.Count + virtualFishData.Count;
 
         var obstacleJob = new ObstacleAvoidanceJob
         {
@@ -371,7 +143,7 @@ public class OptimizedFishManager : MonoBehaviour
             stableAvoidanceDirections = stableAvoidanceDirections,
             avoidanceDirectionTimers = avoidanceDirectionTimers
         };
-        obstacleJobHandle = obstacleJob.Schedule(allFish.Count, jobBatchSize);
+        obstacleJobHandle = obstacleJob.Schedule(totalFishCount, jobBatchSize);
 
         var boidsJob = new EnhancedBoidsJob
         {
@@ -400,75 +172,166 @@ public class OptimizedFishManager : MonoBehaviour
             accelerations = accelerations,
             smoothedDesiredDirections = smoothedDesiredDirections
         };
-        boidsJobHandle = boidsJob.Schedule(allFish.Count, jobBatchSize, obstacleJobHandle);
+        boidsJobHandle = boidsJob.Schedule(totalFishCount, jobBatchSize, obstacleJobHandle);
 
         jobsScheduled = true;
     }
 
-    void DebugSpatialHash()
+    void UpdateObstaclesAndVirtualFish()
     {
-        if (allFish.Count == 0) return;
+        detectedObstacles.Clear();
+        virtualFishData.Clear();
 
-        int totalNeighbors = 0;
-        float minDistance = float.MaxValue;
-        int clusteredFish = 0;
-
-        for (int i = 0; i < allFish.Count; i++)
+        // Find all obstacles in scene
+        GameObject[] obstacles = GameObject.FindGameObjectsWithTag(obstacleTag);
+        
+        foreach (var obstacle in obstacles)
         {
-            var fish = fishDataArray[i];
-            int neighborCount = 0;
-            float closestDistance = float.MaxValue;
-
-            // Check neighbors for this fish
-            int gx = math.clamp((int)(fish.position.x / cellSize), 0, gridWidth - 1);
-            int gz = math.clamp((int)(fish.position.z / cellSize), 0, gridHeight - 1);
-
-            for (int dx = -1; dx <= 1; dx++)
+            if (obstacle == null) continue;
+            
+            // Check if any real fish are near this obstacle
+            bool fishNearby = false;
+            Vector3 obstaclePos = obstacle.transform.position;
+            
+            for (int i = 0; i < allFish.Count; i++)
             {
-                for (int dz = -1; dz <= 1; dz++)
+                float distance = Vector3.Distance(allFish[i].position, obstaclePos);
+                if (distance < obstacleDetectionRadius)
                 {
-                    int cx = gx + dx;
-                    int cz = gz + dz;
-                    if (cx < 0 || cx >= gridWidth || cz < 0 || cz >= gridHeight) continue;
-
-                    int hash = cx + cz * gridWidth;
-                    if (spatialHashMap.TryGetFirstValue(hash, out int ni, out var it))
-                    {
-                        do
-                        {
-                            if (ni != i && ni >= 0 && ni < allFish.Count)
-                            {
-                                float3 d = fish.position - fishDataArray[ni].position;
-                                float dist = math.length(d);
-                                if (dist <= neighborRadius)
-                                {
-                                    neighborCount++;
-                                    closestDistance = math.min(closestDistance, dist);
-                                }
-                            }
-                        }
-                        while (spatialHashMap.TryGetNextValue(out ni, ref it));
-                    }
+                    fishNearby = true;
+                    break;
                 }
             }
-
-            totalNeighbors += neighborCount;
-            if (closestDistance < float.MaxValue)
+            
+            if (fishNearby)
             {
-                minDistance = math.min(minDistance, closestDistance);
-                if (closestDistance < separationRadius)
-                {
-                    clusteredFish++;
-                }
+                detectedObstacles.Add(obstacle);
+                CreateVirtualFishAroundObstacle(obstacle);
             }
         }
+    }
 
-        Debug.Log($"SEPARATION DEBUG - Fish: {allFish.Count}, Avg Neighbors: {totalNeighbors / (float)allFish.Count:F1}, " +
-                  $"Min Distance: {minDistance:F2}, Clustered Fish: {clusteredFish}, Separation Radius: {separationRadius:F1}");
+    void CreateVirtualFishAroundObstacle(GameObject obstacle)
+    {
+        Vector3 center = obstacle.transform.position;
+        Collider obstacleCollider = obstacle.GetComponent<Collider>();
+        if (obstacleCollider == null) return;
+        
+        Bounds bounds = obstacleCollider.bounds;
+        float baseRadius = Mathf.Max(bounds.size.x, bounds.size.z) * 0.5f;
+        
+        // Create multiple rings of virtual fish for complete coverage
+        for (int ring = 0; ring < virtualFishRings; ring++)
+        {
+            float currentRadius = baseRadius + virtualFishRadius + (ring * ringSpacing);
+            int fishInThisRing = virtualFishPerRing + (ring * 4); // More fish in outer rings
+            
+            // Create virtual fish in current ring
+            for (int i = 0; i < fishInThisRing; i++)
+            {
+                float angle = (i / (float)fishInThisRing) * 2f * Mathf.PI;
+                
+                // Add some randomness to avoid perfect circles
+                float radiusVariation = UnityEngine.Random.Range(-0.3f, 0.3f);
+                float actualRadius = currentRadius + radiusVariation;
+                
+                Vector3 offset = new Vector3(
+                    Mathf.Cos(angle) * actualRadius,
+                    center.y + UnityEngine.Random.Range(-bounds.size.y * 0.4f, bounds.size.y * 0.4f),
+                    Mathf.Sin(angle) * actualRadius
+                );
+                
+                Vector3 virtualPos = center + offset;
+                
+                // Make virtual fish size based on ring (inner = larger)
+                float virtualSize = 6f - (ring * 1f); // Inner ring = size 6, outer = size 4
+                
+                FishData virtualFish = new FishData
+                {
+                    position = new float3(virtualPos.x, virtualPos.y, virtualPos.z),
+                    velocity = float3.zero,
+                    species = 999, // Virtual fish species
+                    fishSize = virtualSize,
+                    targetPosition = float3.zero,
+                    hasTarget = false,
+                    lastAvoidanceDirection = float3.zero,
+                    avoidanceMemoryTimer = 0f,
+                    hasRecentAvoidanceMemory = false,
+                    stableAvoidanceDirection = float3.zero,
+                    avoidanceDirectionTimer = 0f,
+                    smoothedDesiredDirection = float3.zero,
+                    isAvoiding = false,
+                    isInEmergency = false
+                };
+                
+                virtualFishData.Add(virtualFish);
+                
+                // Safety check to avoid too many virtual fish
+                if (virtualFishData.Count >= maxVirtualFish - 20) return;
+            }
+        }
+        
+        // Add virtual fish INSIDE the obstacle for extra safety
+        CreateInteriorVirtualFish(obstacle, bounds, center);
+    }
+
+    void CreateInteriorVirtualFish(GameObject obstacle, Bounds bounds, Vector3 center)
+    {
+        // Add virtual fish inside the obstacle bounds as a last resort barrier
+        int interiorFish = 8;
+        for (int i = 0; i < interiorFish; i++)
+        {
+            Vector3 randomInteriorPos = center + new Vector3(
+                UnityEngine.Random.Range(-bounds.size.x * 0.3f, bounds.size.x * 0.3f),
+                UnityEngine.Random.Range(-bounds.size.y * 0.3f, bounds.size.y * 0.3f),
+                UnityEngine.Random.Range(-bounds.size.z * 0.3f, bounds.size.z * 0.3f)
+            );
+            
+            FishData interiorVirtualFish = new FishData
+            {
+                position = new float3(randomInteriorPos.x, randomInteriorPos.y, randomInteriorPos.z),
+                velocity = float3.zero,
+                species = 998, // Different species for interior virtual fish
+                fishSize = 8f, // Very large for strong repulsion
+                targetPosition = float3.zero,
+                hasTarget = false,
+                lastAvoidanceDirection = float3.zero,
+                avoidanceMemoryTimer = 0f,
+                hasRecentAvoidanceMemory = false,
+                stableAvoidanceDirection = float3.zero,
+                avoidanceDirectionTimer = 0f,
+                smoothedDesiredDirection = float3.zero,
+                isAvoiding = false,
+                isInEmergency = false
+            };
+            
+            virtualFishData.Add(interiorVirtualFish);
+            
+            // Safety check
+            if (virtualFishData.Count >= maxVirtualFish) return;
+        }
+    }
+
+    void DebugObstacleSystem()
+    {
+        Debug.Log($"OBSTACLE DEBUG - Real Fish: {allFish.Count}, Virtual Fish: {virtualFishData.Count}, " +
+                  $"Active Obstacles: {detectedObstacles.Count}, Max Virtual: {maxVirtualFish}");
+        
+        int exteriorVirtual = 0;
+        int interiorVirtual = 0;
+        
+        foreach (var vf in virtualFishData)
+        {
+            if (vf.species == 999) exteriorVirtual++;
+            else if (vf.species == 998) interiorVirtual++;
+        }
+        
+        Debug.Log($"Virtual Fish Types - Exterior (999): {exteriorVirtual}, Interior (998): {interiorVirtual}");
     }
 
     void ConsumeJobResults()
     {
+        // Only update real fish, not virtual ones
         for (int i = 0; i < allFish.Count; i++)
         {
             allFish[i].UpdateFromJobResult(
@@ -487,13 +350,24 @@ public class OptimizedFishManager : MonoBehaviour
 
     void BuildInputData()
     {
+        // Combine real fish and virtual fish
+        int totalFishCount = allFish.Count + virtualFishData.Count;
+        
+        // Real fish data
         for (int i = 0; i < allFish.Count; i++)
         {
             fishDataArray[i] = allFish[i].GetFishData();
         }
+        
+        // Add virtual fish data
+        for (int i = 0; i < virtualFishData.Count; i++)
+        {
+            fishDataArray[allFish.Count + i] = virtualFishData[i];
+        }
 
+        // Clear and rebuild spatial hash with all fish (real + virtual)
         spatialHashMap.Clear();
-        for (int i = 0; i < allFish.Count; i++)
+        for (int i = 0; i < totalFishCount; i++)
         {
             float3 p = fishDataArray[i].position;
             int gx = math.clamp((int)(p.x / cellSize), 0, gridWidth - 1);
@@ -546,20 +420,42 @@ public class OptimizedFishManager : MonoBehaviour
         DisposeArrays();
     }
 
+    void OnDrawGizmos()
+    {
+        if (!showVirtualFish || !Application.isPlaying) return;
+        
+        // Draw virtual fish as small spheres
+        foreach (var vf in virtualFishData)
+        {
+            Vector3 pos = new Vector3(vf.position.x, vf.position.y, vf.position.z);
+            
+            if (vf.species == 999) // Exterior virtual fish
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(pos, 0.3f);
+            }
+            else if (vf.species == 998) // Interior virtual fish
+            {
+                Gizmos.color = Color.magenta;
+                Gizmos.DrawSphere(pos, 0.2f);
+            }
+        }
+    }
+
     void OnGUI()
     {
         if (!showDebugInfo || !Application.isPlaying) return;
 
-        GUILayout.BeginArea(new Rect(10, Screen.height - 180, 400, 170));
-        GUILayout.Box("Fish Manager Debug - FIXED VERSION");
-        GUILayout.Label($"Fish Count: {allFish.Count}");
+        GUILayout.BeginArea(new Rect(10, Screen.height - 200, 450, 190));
+        GUILayout.Box("Fish Manager Debug - ENHANCED OBSTACLE AVOIDANCE");
+        GUILayout.Label($"Real Fish: {allFish.Count}");
+        GUILayout.Label($"Virtual Fish: {virtualFishData.Count} / {maxVirtualFish}");
+        GUILayout.Label($"Active Obstacles: {detectedObstacles.Count}");
         GUILayout.Label($"Separation Radius: {separationRadius:F1}");
         GUILayout.Label($"Separation Weight: {separationWeight:F1}");
-        GUILayout.Label($"Neighbor Radius: {neighborRadius:F1}");
-        GUILayout.Label($"Cohesion Weight: {cohesionWeight:F1}");
-        GUILayout.Label($"Alignment Weight: {alignmentWeight:F1}");
-        GUILayout.Label($"Cell Size: {cellSize:F1}");
-        GUILayout.Label($"Grid: {gridWidth}×{gridHeight}");
+        GUILayout.Label($"Virtual Fish Rings: {virtualFishRings}");
+        GUILayout.Label($"Fish per Ring: {virtualFishPerRing}");
+        GUILayout.Label($"Detection Radius: {obstacleDetectionRadius:F1}");
         GUILayout.EndArea();
     }
 }

@@ -3,8 +3,6 @@ using Unity.Burst;
 using Unity.Jobs;
 using Unity.Mathematics;
 
-[System.Serializable]
-
 public struct FishData
 {
     public float3 position;
@@ -46,6 +44,18 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
     {
         FishData fish = fishData[index];
         
+        // Skip processing for virtual fish (obstacles)
+        if (fish.species >= 998)
+        {
+            avoidanceDirections[index] = float3.zero;
+            avoidingFlags[index] = false;
+            emergencyFlags[index] = false;
+            avoidanceMemoryTimers[index] = 0f;
+            stableAvoidanceDirections[index] = float3.zero;
+            avoidanceDirectionTimers[index] = 0f;
+            return;
+        }
+        
         float dirTimer = fish.avoidanceDirectionTimer;
         if (dirTimer > 0f) dirTimer -= deltaTime;
         
@@ -57,7 +67,7 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
             if (memoryTimer <= 0f) hasMemory = false;
         }
         
-        // Very lenient boundaries - only avoid at extreme distances
+        // Very lenient world boundaries - only avoid at extreme distances
         float3 currentAvoidanceDirection = CalculateVeryLenientBoundaryAvoidance(fish.position);
         bool isAvoiding = false;
         bool isEmergency = false;
@@ -195,11 +205,21 @@ public struct EnhancedBoidsJob : IJobParallelFor
     public void Execute(int index)
     {
         FishData fish = fishData[index];
+        
+        // Skip processing for virtual fish (obstacles)
+        if (fish.species >= 998)
+        {
+            desiredDirections[index] = float3.zero;
+            accelerations[index] = 0f;
+            smoothedDesiredDirections[index] = float3.zero;
+            return;
+        }
+        
         bool isAvoiding = avoidingFlags[index];
         bool isEmergency = emergencyFlags[index];
         float3 avoidanceDir = avoidanceDirections[index];
 
-        // Calculate boids forces
+        // Calculate boids forces (includes virtual fish avoidance)
         float3 sep = CalculateSeparation(fish, index);
         float3 ali = CalculateAlignment(fish, index);
         float3 coh = CalculateCohesion(fish, index);
@@ -230,19 +250,20 @@ public struct EnhancedBoidsJob : IJobParallelFor
         }
         else
         {
+            // Enhanced separation handling for obstacle avoidance
             float sepMagnitude = math.length(sep);
-            if (sepMagnitude > 0.3f) // Higher threshold
+            if (sepMagnitude > 0.4f) // Reasonable threshold
             {
-                // Gentle separation boost - not emergency
-                combined += sep * (separationWeight * 1.8f); // Reduced from 4f
-                combined += ali * alignmentWeight;
-                combined += coh * cohesionWeight;
+                // Moderate separation boost
+                combined += sep * (separationWeight * 2.2f);
+                combined += ali * (alignmentWeight * 0.8f);
+                combined += coh * (cohesionWeight * 0.6f);
                 combined += tgtDir * targetWeight;
-                accel = baseAcceleration * 1.2f; // Gentle boost
+                accel = baseAcceleration * 1.4f;
             }
             else
             {
-                // Normal tight school behavior
+                // Normal natural schooling behavior
                 combined += sep * separationWeight;
                 combined += ali * alignmentWeight;
                 combined += coh * cohesionWeight;
@@ -302,9 +323,12 @@ public struct EnhancedBoidsJob : IJobParallelFor
         accelerations[index] = accel;
     }
 
-    // FIXED: Proper separation calculation matching original
+    // ENHANCED: Powerful obstacle avoidance through virtual fish separation
     float3 CalculateSeparation(FishData fish, int selfIdx)
     {
+        // Skip separation calculation for virtual fish
+        if (fish.species >= 998) return float3.zero;
+        
         float3 result = float3.zero;
         int count = 0;
 
@@ -319,26 +343,50 @@ public struct EnhancedBoidsJob : IJobParallelFor
             float dist = math.length(diff);
 
             float effRad = separationRadius;
-            if (avoidLargerSpecies && n.species != fish.species && n.fishSize > fish.fishSize)
-                effRad *= 1.5f;
+            float forceMultiplier = 1f;
+            
+            // ENHANCED: Different handling for different virtual fish types
+            if (n.species == 999) // Exterior virtual fish (around obstacle)
+            {
+                effRad = separationRadius * 2.5f; // Much larger radius
+                forceMultiplier = 3f; // Strong avoidance
+            }
+            else if (n.species == 998) // Interior virtual fish (inside obstacle)
+            {
+                effRad = separationRadius * 3f; // Even larger radius
+                forceMultiplier = 5f; // Very strong emergency avoidance
+            }
+            else
+            {
+                // Normal fish separation
+                if (avoidLargerSpecies && n.species != fish.species && n.fishSize > fish.fishSize)
+                    effRad *= 1.5f;
+            }
 
             if (dist < effRad && dist > 0f)
             {
-                // FIXED: Match original calculation exactly
                 float3 normalized = SafeNormalize(diff);
-                normalized /= dist; // Closer fish have MORE influence
-                result += normalized;
+                
+                if (n.species >= 998) // Virtual fish
+                {
+                    normalized /= (dist * 0.3f); // Much stronger inverse distance
+                    result += normalized * forceMultiplier;
+                }
+                else
+                {
+                    normalized /= dist;
+                    result += normalized;
+                }
                 count++;
             }
         }
 
         neighbors.Dispose();
         
-        // FIXED: Don't normalize until after averaging
         if (count > 0)
         {
-            result /= count; // Average first
-            result = SafeNormalize(result); // Then normalize
+            result /= count;
+            result = SafeNormalize(result);
         }
         
         return result;
@@ -346,6 +394,9 @@ public struct EnhancedBoidsJob : IJobParallelFor
 
     float3 CalculateAlignment(FishData fish, int selfIdx)
     {
+        // Skip for virtual fish
+        if (fish.species >= 998) return float3.zero;
+        
         float3 result = float3.zero;
         int count = 0;
 
@@ -356,7 +407,9 @@ public struct EnhancedBoidsJob : IJobParallelFor
             if (ni < 0) break;
 
             FishData n = fishData[ni];
-            if (!onlySchoolWithSameSpecies || n.species == fish.species)
+            
+            // Only align with real fish of same species
+            if (n.species < 998 && (!onlySchoolWithSameSpecies || n.species == fish.species))
             {
                 result += SafeNormalize(n.velocity);
                 count++;
@@ -369,6 +422,9 @@ public struct EnhancedBoidsJob : IJobParallelFor
 
     float3 CalculateCohesion(FishData fish, int selfIdx)
     {
+        // Skip for virtual fish
+        if (fish.species >= 998) return float3.zero;
+        
         float3 center = float3.zero;
         int count = 0;
 
@@ -379,7 +435,9 @@ public struct EnhancedBoidsJob : IJobParallelFor
             if (ni < 0) break;
 
             FishData n = fishData[ni];
-            if (!onlySchoolWithSameSpecies || n.species == fish.species)
+            
+            // Only cohere with real fish of same species
+            if (n.species < 998 && (!onlySchoolWithSameSpecies || n.species == fish.species))
             {
                 center += n.position;
                 count++;

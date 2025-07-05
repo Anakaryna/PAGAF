@@ -30,8 +30,9 @@ Material:
   m_LightmapFlags: 2
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 1
-  m_CustomRenderQueue: -1
-  stringTagMap: {}
+  m_CustomRenderQueue: 2000
+  stringTagMap:
+    RenderType: Opaque
   disabledShaderPasses: []
   m_LockedProperties: 
   m_SavedProperties:
@@ -51,15 +52,28 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _AlphaClip: 0
+    - _AlphaToMask: 0
+    - _Blend: 0
+    - _CastShadows: 1
+    - _Cull: 2
+    - _DstBlend: 0
     - _FishLength: 0.63
     - _FlagYawAmplitude: 0.01
+    - _FresnelPower: 2.7
     - _PivotOffset: 0.01
     - _QueueControl: 0
     - _QueueOffset: 0
     - _RollAmplitude: 21
     - _SideAmplitude: 0.1
+    - _SrcBlend: 1
+    - _Surface: 0
     - _SwimIntensity: 1
     - _SwimSpeed: 5
     - _YawAmplitude: 15
-    m_Colors: []
+    - _ZTest: 4
+    - _ZWrite: 1
+    - _ZWriteControl: 0
+    m_Colors:
+    - _Color: {r: 1.7188214, g: 6.7046237, b: 8.474189, a: 1}
   m_BuildTextureStacks: []
