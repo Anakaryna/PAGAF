@@ -1180,7 +1180,7 @@ public class AutonomousFishController : MonoBehaviour
     public float fishSize = 1f;
     
     [Header("Target Following")]
-    [HideInInspector] // Hide since it will be set by spawner
+    [HideInInspector]
     public Transform target;
     public float arrivalDistance = 1f;
     
@@ -1212,6 +1212,11 @@ public class AutonomousFishController : MonoBehaviour
     public int rayCount = 3;
     public float raySpread = 45f;
     public LayerMask obstacleLayer = 1;
+    [Space]
+    [Header("Avoidance Stability")]
+    public float avoidanceMemoryTime = 2f; // How long to remember avoidance direction
+    public float avoidanceBlendSpeed = 2f; // How fast to blend avoidance directions
+    public float clearPathCheckDistance = 8f; // Distance to check if path is clear
     
     [Header("Animation Tuning")]
     [Space]
@@ -1230,9 +1235,8 @@ public class AutonomousFishController : MonoBehaviour
     public float angularInfluenceOnMovement = 0.3f;
     
     [Header("Performance Settings")]
-    public float neighborUpdateInterval = 0.1f; // Update neighbors every 100ms
-    public float obstacleCheckInterval = 0.05f; // Check obstacles every 50ms
-    public float shaderUpdateThreshold = 0.1f; // Only update shader when change is significant
+    public float neighborUpdateInterval = 0.1f;
+    public float obstacleCheckInterval = 0.05f;
     
     [Header("Debug")]
     public bool showDebugGUI = true;
@@ -1242,15 +1246,22 @@ public class AutonomousFishController : MonoBehaviour
     // Private variables
     private Vector3 velocity;
     private Vector3 desiredDirection;
+    private Vector3 smoothedDesiredDirection; // NEW: Smooth the desired direction
+    
+    // Enhanced avoidance system
     private Vector3 stableAvoidanceDirection;
     private float avoidanceDirectionTimer;
+    private float avoidanceMemoryTimer; // NEW: Remember avoidance even after obstacle is gone
+    private Vector3 lastKnownAvoidanceDirection; // NEW: Remember last avoidance direction
+    private bool hasRecentAvoidanceMemory; // NEW: Flag for recent avoidance
+    
     private float currentAcceleration;
     private float angularAcceleration;
     
     // Optimized rendering
     private MaterialPropertyBlock propertyBlock;
     private Renderer fishRenderer;
-    private Material fishMaterial; // Kept for backwards compatibility
+    private Material fishMaterial;
     
     // Animation state
     private float movementIntensity;
@@ -1259,8 +1270,6 @@ public class AutonomousFishController : MonoBehaviour
     private float smoothedSwimSpeed;
     private float swimIntensityVelocity;
     private float swimSpeedVelocity;
-    private float lastSwimSpeed;
-    private float lastSwimIntensity;
     
     // Avoidance state
     private bool isAvoiding = false;
@@ -1285,45 +1294,54 @@ public class AutonomousFishController : MonoBehaviour
         if (fishRenderer != null)
         {
             propertyBlock = new MaterialPropertyBlock();
-            fishMaterial = fishRenderer.material; // Backwards compatibility
+            fishMaterial = fishRenderer.material;
         }
         
         // Initialize state
         velocity = Vector3.zero;
         smoothedSwimSpeed = normalSwimSpeed;
         smoothedSwimIntensity = normalSwimIntensity;
-        lastSwimSpeed = normalSwimSpeed;
-        lastSwimIntensity = normalSwimIntensity;
         stableAvoidanceDirection = Vector3.zero;
+        smoothedDesiredDirection = Vector3.zero;
+        lastKnownAvoidanceDirection = Vector3.zero;
         cachedAvoidanceDirection = Vector3.zero;
+        hasRecentAvoidanceMemory = false;
         
-        // Initialize timers
-        neighborUpdateTimer = Random.Range(0f, neighborUpdateInterval); // Stagger updates
+        // Stagger timers to distribute load
+        neighborUpdateTimer = Random.Range(0f, neighborUpdateInterval);
         obstacleCheckTimer = Random.Range(0f, obstacleCheckInterval);
     }
     
     void OnEnable()
     {
-        // Register this fish
         if (!allFish.Contains(this))
             allFish.Add(this);
     }
     
     void OnDisable()
     {
-        // Unregister this fish
         if (allFish.Contains(this))
             allFish.Remove(this);
     }
     
     void Update()
     {
-        // Update neighbors periodically for performance
+        // Update neighbors less frequently
         neighborUpdateTimer += Time.deltaTime;
         if (neighborUpdateTimer >= neighborUpdateInterval)
         {
             FindNeighbors();
             neighborUpdateTimer = 0f;
+        }
+        
+        // Update avoidance memory timer
+        if (hasRecentAvoidanceMemory)
+        {
+            avoidanceMemoryTimer -= Time.deltaTime;
+            if (avoidanceMemoryTimer <= 0f)
+            {
+                hasRecentAvoidanceMemory = false;
+            }
         }
         
         UpdateDesiredDirection();
@@ -1332,7 +1350,6 @@ public class AutonomousFishController : MonoBehaviour
         UpdateSwimmingAnimation();
     }
     
-    // Set target from external source (spawner)
     public void SetTarget(Transform newTarget)
     {
         target = newTarget;
@@ -1350,10 +1367,8 @@ public class AutonomousFishController : MonoBehaviour
             float distance = Vector3.Distance(transform.position, otherFish.transform.position);
             if (distance <= neighborRadius)
             {
-                // Check species compatibility
                 if (onlySchoolWithSameSpecies && otherFish.species != species)
                 {
-                    // Only add different species if we should avoid larger ones
                     if (avoidLargerSpecies && otherFish.fishSize > fishSize)
                     {
                         neighbors.Add(otherFish);
@@ -1374,18 +1389,17 @@ public class AutonomousFishController : MonoBehaviour
         foreach (var neighbor in neighbors)
         {
             float distance = Vector3.Distance(transform.position, neighbor.transform.position);
-            
-            // Use different separation radius for different species
             float effectiveSeparationRadius = separationRadius;
+            
             if (neighbor.species != species && neighbor.fishSize > fishSize)
             {
-                effectiveSeparationRadius *= 1.5f; // Avoid larger species more
+                effectiveSeparationRadius *= 1.5f;
             }
             
             if (distance < effectiveSeparationRadius && distance > 0)
             {
                 Vector3 diff = (transform.position - neighbor.transform.position).normalized;
-                diff /= distance; // Weight by distance (closer = stronger)
+                diff /= distance;
                 separation += diff;
                 count++;
             }
@@ -1407,7 +1421,6 @@ public class AutonomousFishController : MonoBehaviour
         
         foreach (var neighbor in neighbors)
         {
-            // Only align with same species
             if (neighbor.species == species)
             {
                 alignment += neighbor.velocity.normalized;
@@ -1431,7 +1444,6 @@ public class AutonomousFishController : MonoBehaviour
         
         foreach (var neighbor in neighbors)
         {
-            // Only cohere with same species
             if (neighbor.species == species)
             {
                 center += neighbor.transform.position;
@@ -1456,76 +1468,148 @@ public class AutonomousFishController : MonoBehaviour
         alignmentForce = CalculateAlignment();
         cohesionForce = CalculateCohesion();
         
-        // Calculate target direction
         Vector3 targetDirection = Vector3.zero;
         if (target != null)
         {
             targetDirection = (target.position - transform.position).normalized;
         }
         
-        // Calculate obstacle avoidance with performance optimization
-        Vector3 avoidanceDirection = CalculateObstacleAvoidance();
+        // Get current avoidance direction
+        Vector3 currentAvoidanceDirection = CalculateObstacleAvoidance();
         
-        // Combine all forces
-        Vector3 combinedDirection = Vector3.zero;
+        // Enhanced avoidance system
+        Vector3 finalAvoidanceDirection = Vector3.zero;
+        bool shouldAvoid = false;
         
-        // Obstacle avoidance has highest priority
-        if (avoidanceDirection != Vector3.zero)
+        if (currentAvoidanceDirection != Vector3.zero)
         {
-            isAvoiding = true;
+            // We have a current obstacle to avoid
+            shouldAvoid = true;
             
+            // Update stable avoidance direction
             if (stableAvoidanceDirection == Vector3.zero || avoidanceDirectionTimer <= 0f)
             {
-                stableAvoidanceDirection = avoidanceDirection;
-                avoidanceDirectionTimer = isInEmergency ? 0.3f : 0.8f;
+                stableAvoidanceDirection = currentAvoidanceDirection;
+                avoidanceDirectionTimer = isInEmergency ? 0.5f : 1.2f; // Longer stability
+            }
+            else
+            {
+                // Blend current with stable for smoother transitions
+                stableAvoidanceDirection = Vector3.Slerp(
+                    stableAvoidanceDirection, 
+                    currentAvoidanceDirection, 
+                    Time.deltaTime * avoidanceBlendSpeed
+                );
             }
             
             avoidanceDirectionTimer -= Time.deltaTime;
+            finalAvoidanceDirection = stableAvoidanceDirection;
             
-            // In emergency, prioritize obstacle avoidance
+            // Store in memory
+            lastKnownAvoidanceDirection = finalAvoidanceDirection;
+            hasRecentAvoidanceMemory = true;
+            avoidanceMemoryTimer = avoidanceMemoryTime;
+        }
+        else if (hasRecentAvoidanceMemory)
+        {
+            // No immediate obstacle, but we have recent avoidance memory
+            // Check if the path towards target is clear
+            bool pathToTargetClear = IsPathClear(targetDirection);
+            
+            if (!pathToTargetClear)
+            {
+                // Path still not clear, continue with remembered avoidance
+                shouldAvoid = true;
+                finalAvoidanceDirection = lastKnownAvoidanceDirection;
+                
+                // Gradually reduce the memory influence
+                float memoryStrength = avoidanceMemoryTimer / avoidanceMemoryTime;
+                finalAvoidanceDirection *= memoryStrength;
+            }
+        }
+        
+        Vector3 combinedDirection = Vector3.zero;
+        
+        if (shouldAvoid)
+        {
+            isAvoiding = true;
+            
             if (isInEmergency)
             {
-                combinedDirection = stableAvoidanceDirection;
+                // Emergency: Only avoidance matters
+                combinedDirection = finalAvoidanceDirection;
                 currentAcceleration = boostAcceleration * 1.5f;
             }
             else
             {
-                // Blend avoidance with boids behavior
-                combinedDirection += stableAvoidanceDirection * 3f; // High weight for avoidance
+                // Normal avoidance: Heavily weighted but allow some boids behavior
+                combinedDirection += finalAvoidanceDirection * 4f; // Increased weight
                 combinedDirection += separationForce * separationWeight;
-                combinedDirection += targetDirection * (targetWeight * 0.5f); // Reduced target weight when avoiding
+                
+                // Drastically reduce target influence when avoiding
+                if (hasRecentAvoidanceMemory)
+                {
+                    combinedDirection += targetDirection * (targetWeight * 0.1f); // Much less influence
+                }
+                
                 currentAcceleration = boostAcceleration;
             }
         }
         else
         {
+            // No avoidance needed - normal boids behavior
             isAvoiding = false;
             isInEmergency = false;
             stableAvoidanceDirection = Vector3.zero;
-            avoidanceDirectionTimer = 0f;
             
-            // Normal boids behavior
             combinedDirection += separationForce * separationWeight;
             combinedDirection += alignmentForce * alignmentWeight;
             combinedDirection += cohesionForce * cohesionWeight;
             combinedDirection += targetDirection * targetWeight;
             currentAcceleration = baseAcceleration;
             
-            // Boost acceleration if separation is strong (fish trying to avoid collision)
             if (separationForce.magnitude > 0.5f)
             {
                 currentAcceleration = Mathf.Lerp(baseAcceleration, boostAcceleration, separationForce.magnitude);
             }
         }
         
-        desiredDirection = combinedDirection.normalized;
+        // Smooth the desired direction to prevent jitter
+        Vector3 newDesiredDirection = combinedDirection.normalized;
+        if (smoothedDesiredDirection == Vector3.zero)
+        {
+            smoothedDesiredDirection = newDesiredDirection;
+        }
+        else
+        {
+            float smoothingSpeed = isInEmergency ? 6f : 3f;
+            smoothedDesiredDirection = Vector3.Slerp(
+                smoothedDesiredDirection, 
+                newDesiredDirection, 
+                Time.deltaTime * smoothingSpeed
+            );
+        }
+        
+        desiredDirection = smoothedDesiredDirection;
+    }
+    
+    // NEW: Check if path is clear in a given direction
+    bool IsPathClear(Vector3 direction)
+    {
+        if (direction == Vector3.zero) return true;
+        
+        return !Physics.Raycast(
+            transform.position, 
+            direction, 
+            clearPathCheckDistance, 
+            obstacleLayer
+        );
     }
     
     Vector3 CalculateObstacleAvoidance()
     {
         obstacleCheckTimer += Time.deltaTime;
         
-        // Only raycast periodically unless in emergency
         if (obstacleCheckTimer >= obstacleCheckInterval || isInEmergency)
         {
             obstacleCheckTimer = 0f;
@@ -1539,14 +1623,12 @@ public class AutonomousFishController : MonoBehaviour
     {
         Vector3 currentForward = velocity.magnitude > 0.1f ? velocity.normalized : transform.forward;
         Vector3 bestAvoidanceDirection = Vector3.zero;
-        float closestDistance = float.MaxValue;
         isInEmergency = false;
         
-        // Check center ray first (most important)
+        // Check center ray
         RaycastHit hit;
         if (Physics.Raycast(transform.position, currentForward, out hit, lookAheadDistance, obstacleLayer))
         {
-            closestDistance = hit.distance;
             bestAvoidanceDirection = CalculateSimpleAvoidanceDirection(hit);
             
             if (hit.distance < emergencyDistance)
@@ -1555,22 +1637,36 @@ public class AutonomousFishController : MonoBehaviour
             }
         }
         
-        // Check side rays only if we need more information
+        // Enhanced side ray checking
         if (bestAvoidanceDirection != Vector3.zero)
         {
             Vector3 leftDirection = Quaternion.AngleAxis(-raySpread / 2f, Vector3.up) * currentForward;
             Vector3 rightDirection = Quaternion.AngleAxis(raySpread / 2f, Vector3.up) * currentForward;
             
-            bool leftBlocked = Physics.Raycast(transform.position, leftDirection, lookAheadDistance, obstacleLayer);
-            bool rightBlocked = Physics.Raycast(transform.position, rightDirection, lookAheadDistance, obstacleLayer);
+            RaycastHit leftHit, rightHit;
+            bool leftBlocked = Physics.Raycast(transform.position, leftDirection, out leftHit, lookAheadDistance, obstacleLayer);
+            bool rightBlocked = Physics.Raycast(transform.position, rightDirection, out rightHit, lookAheadDistance, obstacleLayer);
             
+            // Choose the side with more clearance
             if (!leftBlocked && rightBlocked)
             {
-                bestAvoidanceDirection = Vector3.Lerp(bestAvoidanceDirection, -transform.right, 0.5f);
+                bestAvoidanceDirection = Vector3.Slerp(bestAvoidanceDirection, -transform.right, 0.6f);
             }
             else if (leftBlocked && !rightBlocked)
             {
-                bestAvoidanceDirection = Vector3.Lerp(bestAvoidanceDirection, transform.right, 0.5f);
+                bestAvoidanceDirection = Vector3.Slerp(bestAvoidanceDirection, transform.right, 0.6f);
+            }
+            else if (leftBlocked && rightBlocked)
+            {
+                // Both sides blocked, choose the one with more distance
+                if (leftHit.distance > rightHit.distance)
+                {
+                    bestAvoidanceDirection = Vector3.Slerp(bestAvoidanceDirection, -transform.right, 0.4f);
+                }
+                else
+                {
+                    bestAvoidanceDirection = Vector3.Slerp(bestAvoidanceDirection, transform.right, 0.4f);
+                }
             }
         }
         
@@ -1582,14 +1678,13 @@ public class AutonomousFishController : MonoBehaviour
         Vector3 hitToFish = (transform.position - hit.point).normalized;
         Vector3 surfaceNormal = hit.normal;
         
-        Vector3 avoidDirection = (hitToFish * 0.7f + surfaceNormal * 0.3f).normalized;
+        // More aggressive avoidance calculation
+        Vector3 avoidDirection = (hitToFish * 0.8f + surfaceNormal * 0.2f).normalized;
         
-        Vector3 obstacleToFish = (transform.position - hit.collider.transform.position);
-        obstacleToFish.y = 0;
-        
-        if (obstacleToFish.magnitude > 0.1f)
+        // Add upward component if hit is below fish
+        if (hit.point.y < transform.position.y)
         {
-            avoidDirection = Vector3.Lerp(avoidDirection, obstacleToFish.normalized, 0.3f);
+            avoidDirection += Vector3.up * 0.3f;
         }
         
         return avoidDirection.normalized;
@@ -1607,7 +1702,7 @@ public class AutonomousFishController : MonoBehaviour
         float angularContribution = angularAcceleration * angularInfluenceOnMovement;
         if (isAvoiding)
         {
-            angularContribution *= 0.5f;
+            angularContribution *= 0.3f; // Reduced influence when avoiding
         }
         velocity += transform.forward * angularContribution * Time.deltaTime;
         
@@ -1626,15 +1721,12 @@ public class AutonomousFishController : MonoBehaviour
         if (velocity.magnitude > 0.1f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(velocity.normalized);
-            float angleDifference = Quaternion.Angle(transform.rotation, targetRotation);
             
             float currentTurnSpeed = turnSpeed;
             if (isAvoiding)
             {
-                currentTurnSpeed *= isInEmergency ? 2f : 1.5f;
+                currentTurnSpeed *= isInEmergency ? 1.8f : 1.3f;
             }
-            
-            angularAcceleration = angleDifference * currentTurnSpeed * Time.deltaTime;
             
             transform.rotation = Quaternion.Slerp(
                 transform.rotation, 
@@ -1642,6 +1734,8 @@ public class AutonomousFishController : MonoBehaviour
                 currentTurnSpeed * Time.deltaTime
             );
             
+            float angleDifference = Quaternion.Angle(transform.rotation, targetRotation);
+            angularAcceleration = angleDifference * 0.1f;
             angularIntensity = Mathf.Clamp01(angleDifference / 90f);
         }
         else
@@ -1694,30 +1788,17 @@ public class AutonomousFishController : MonoBehaviour
             smoothTime
         );
         
-        // Optimized shader parameter updates - only when values change significantly
         if (fishRenderer != null && propertyBlock != null)
         {
-            if (Mathf.Abs(smoothedSwimSpeed - lastSwimSpeed) > shaderUpdateThreshold ||
-                Mathf.Abs(smoothedSwimIntensity - lastSwimIntensity) > shaderUpdateThreshold)
-            {
-                propertyBlock.SetFloat("_SwimSpeed", smoothedSwimSpeed);
-                propertyBlock.SetFloat("_SwimIntensity", smoothedSwimIntensity);
-                fishRenderer.SetPropertyBlock(propertyBlock);
-                
-                lastSwimSpeed = smoothedSwimSpeed;
-                lastSwimIntensity = smoothedSwimIntensity;
-            }
+            propertyBlock.SetFloat("_SwimSpeed", smoothedSwimSpeed);
+            propertyBlock.SetFloat("_SwimIntensity", smoothedSwimIntensity);
+            fishRenderer.SetPropertyBlock(propertyBlock);
         }
         
-        // Backwards compatibility - also update material if it exists
         if (fishMaterial != null)
         {
-            if (Mathf.Abs(smoothedSwimSpeed - lastSwimSpeed) > shaderUpdateThreshold ||
-                Mathf.Abs(smoothedSwimIntensity - lastSwimIntensity) > shaderUpdateThreshold)
-            {
-                fishMaterial.SetFloat("_SwimSpeed", smoothedSwimSpeed);
-                fishMaterial.SetFloat("_SwimIntensity", smoothedSwimIntensity);
-            }
+            fishMaterial.SetFloat("_SwimSpeed", smoothedSwimSpeed);
+            fishMaterial.SetFloat("_SwimIntensity", smoothedSwimIntensity);
         }
     }
     
@@ -1725,24 +1806,34 @@ public class AutonomousFishController : MonoBehaviour
     {
         if (!showDebugGizmos) return;
         
-        // Neighbor radius
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, neighborRadius);
         
-        // Separation radius
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, separationRadius);
         
-        // Look ahead distance
         Gizmos.color = Color.blue;
         Vector3 forward = velocity.magnitude > 0.1f ? velocity.normalized : transform.forward;
         Gizmos.DrawWireSphere(transform.position + forward * lookAheadDistance, 0.5f);
         
-        // Emergency distance
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position + forward * emergencyDistance, 0.3f);
         
-        // Boids forces visualization
+        // Show clear path check
+        if (target != null)
+        {
+            Vector3 targetDir = (target.position - transform.position).normalized;
+            Gizmos.color = IsPathClear(targetDir) ? Color.green : Color.red;
+            Gizmos.DrawRay(transform.position, targetDir * clearPathCheckDistance);
+        }
+        
+        // Show avoidance memory
+        if (hasRecentAvoidanceMemory)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawRay(transform.position, lastKnownAvoidanceDirection * 3f);
+        }
+        
         if (showBoidsDebug && Application.isPlaying)
         {
             Gizmos.color = Color.red;
@@ -1754,7 +1845,6 @@ public class AutonomousFishController : MonoBehaviour
             Gizmos.color = Color.blue;
             Gizmos.DrawRay(transform.position, cohesionForce * 2f);
             
-            // Draw connections to neighbors
             Gizmos.color = Color.white;
             foreach (var neighbor in neighbors)
             {
@@ -1767,7 +1857,6 @@ public class AutonomousFishController : MonoBehaviour
             }
         }
         
-        // Target connection
         if (target != null)
         {
             Gizmos.color = isInEmergency ? Color.red : (isAvoiding ? Color.magenta : Color.green);
@@ -1790,21 +1879,22 @@ public class AutonomousFishController : MonoBehaviour
         GUILayout.Label($"Is Avoiding: {isAvoiding}");
         GUILayout.Label($"Is Emergency: {isInEmergency}");
         GUILayout.Label($"Has Target: {target != null}");
-        
-        // Performance info
-        GUILayout.Label($"Neighbor Update Timer: {neighborUpdateTimer:F2}");
-        GUILayout.Label($"Obstacle Check Timer: {obstacleCheckTimer:F2}");
-        
-        // Boids forces
-        GUILayout.Label($"Separation: {separationForce.magnitude:F2}");
-        GUILayout.Label($"Alignment: {alignmentForce.magnitude:F2}");
-        GUILayout.Label($"Cohesion: {cohesionForce.magnitude:F2}");
+        GUILayout.Label($"Has Avoidance Memory: {hasRecentAvoidanceMemory}");
+        GUILayout.Label($"Memory Timer: {avoidanceMemoryTimer:F2}");
         
         if (target != null)
         {
+            Vector3 targetDir = (target.position - transform.position).normalized;
+            bool pathClear = IsPathClear(targetDir);
+            GUILayout.Label($"Path to Target Clear: {pathClear}");
+            
             float distanceToTarget = Vector3.Distance(transform.position, target.position);
             GUILayout.Label($"Distance to Target: {distanceToTarget:F2}");
         }
+        
+        GUILayout.Label($"Separation: {separationForce.magnitude:F2}");
+        GUILayout.Label($"Alignment: {alignmentForce.magnitude:F2}");
+        GUILayout.Label($"Cohesion: {cohesionForce.magnitude:F2}");
         
         GUILayout.EndArea();
     }
