@@ -1161,18 +1161,6 @@ public class AutonomousFishController : MonoBehaviour
 using UnityEngine;
 using System.Collections.Generic;
 
-[System.Serializable]
-public enum FishSpecies
-{
-    Tuna,
-    GoldenTrevally,
-    ClownFish,
-    YellowtailSnapper,
-    Angelfish,
-    Grouper,
-    Shark
-}
-
 public class AutonomousFishController : MonoBehaviour
 {
     [Header("Fish Species")]
