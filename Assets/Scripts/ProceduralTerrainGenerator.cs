@@ -1,4 +1,6 @@
-// ProceduralTerrainGenerator.cs – hop-version, watertight
+// ProceduralTerrainGenerator.cs – hop-version, watertight, ★optimised v5
+// stable incremental culling (snapshot + cursor, no InvalidOperationException)
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,15 +13,16 @@ public enum GenerationType : byte { Simple = 0, Hybrid = 1 }
 [Serializable] public struct BlockData
 {
     public BlockType blockType; public int matrixIndex; public bool generated;
-    public BlockData(BlockType t,int idx){ blockType=t; matrixIndex=idx; generated=true; }
+    public BlockData(BlockType t, int idx) { blockType = t; matrixIndex = idx; generated = true; }
 }
 
 public sealed class ProceduralTerrainGenerator : MonoBehaviour
 {
-    /* ───────────── Settings (unchanged) ───────────── */
+    /* ───────────── User settings ───────────── */
     [Header("Generation")]
     public GenerationType generationType = GenerationType.Simple;
-    public int viewDistance = 50; public float blockSize = 1;
+    public int viewDistance = 50;
+    public float blockSize = 1f;
     public int maxBlocksPerFrame = 200;
     public int maxHeight = 24, minHeight = -8;
 
@@ -32,255 +35,277 @@ public sealed class ProceduralTerrainGenerator : MonoBehaviour
     public Material grassMat, dirtMat, stoneMat, waterMat;
 
     [Header("Player Reference")] public Transform player;
-    [Header("Debug")] public bool debugLogs = true, validateRuntime = true;
+    [Header("Debug")] public bool validateRuntime = false;
 
-    /* ───────────── Data containers ───────────── */
-    readonly Dictionary<Vector3Int,BlockData> world = new();
-    readonly HashSet<Vector3Int>              loadedAir = new();
-    readonly Dictionary<BlockType,List<Matrix4x4>> mats = new()
-    { {BlockType.Grass,new()},{BlockType.Dirt,new()},{BlockType.Stone,new()},{BlockType.Water,new()} };
+    /* ───────────── Internal data ───────────── */
+    readonly Dictionary<Vector3Int, BlockData> world = new();
+    readonly Dictionary<BlockType, List<Matrix4x4>> mats = new()
+    {
+        { BlockType.Grass, new() }, { BlockType.Dirt, new() },
+        { BlockType.Stone, new() }, { BlockType.Water, new() }
+    };
 
-    /* dirty flags */ bool dirtyGrass,dirtyDirt,dirtyStone,dirtyWater;
-    List<Vector3Int> shell;                             // pre-sorted offsets
-    Vector3 lastPlayerPos; Vector3Int lastPlayerGrid;
-    int blocksThisFrame; float lastValidate;
-    
-    readonly List<Vector3Int> tmpKeys = new();   // snapshot buffer
+    List<Vector3Int> shell;            // radial offsets sorted near → far
+    Vector3Int generationCentre;       // updated each frame
+
+    /* generation bookkeeping */
+    int blocksThisFrame;
+    float lastValidate;
+
+    /* instancing scratch */
+    const int kBatch = 1023;
+    static readonly Matrix4x4[] drawBuf = new Matrix4x4[kBatch];
+
+    /* ───────────── Incremental culling state (snapshot + cursor) ───────────── */
+    const int maxCullPerFrame = 8000;
+    readonly List<Vector3Int> keySnapshot = new();
+    readonly List<Vector3Int> killList = new(maxCullPerFrame);
+    int snapshotCursor = 0;            // where we resume next frame
 
     /* ───────────── Unity lifecycle ───────────── */
-    void Awake(){ Application.targetFrameRate = 90; BuildShell(viewDistance); }
+    void Awake()
+    {
+        Application.targetFrameRate = 90;
+        BuildShell(viewDistance);
+    }
 
     void Start()
     {
-        foreach(var l in mats.Values) l.Capacity = viewDistance*viewDistance*2;
-        if(!player && Camera.main) player = Camera.main.transform;
+        foreach (var l in mats.Values)
+            l.Capacity = viewDistance * viewDistance * 2;
 
-        lastPlayerPos  = GetPlayerPos();
-        lastPlayerGrid = WorldToGrid(lastPlayerPos);
-        StartCoroutine(ChunkedUpdateTerrain(lastPlayerGrid));
+        if (!player && Camera.main) player = Camera.main.transform;
+
+        generationCentre = WorldToGrid(GetPlayerPos());
+        RebuildSnapshot();                                 // first cull pass
+        StartCoroutine(ChunkedUpdateTerrain());
     }
 
     void Update()
     {
-        Vector3 pPos = GetPlayerPos(); Vector3Int pGrid = WorldToGrid(pPos);
+        if (player) generationCentre = WorldToGrid(player.position);
 
-        if(pGrid!=lastPlayerGrid || Vector3.Distance(pPos,lastPlayerPos)>blockSize*.8f)
+#if UNITY_EDITOR
+        if (validateRuntime && Time.time - lastValidate > 1f)
         {
-            lastPlayerPos=pPos; lastPlayerGrid=pGrid;
-            StopCoroutine(nameof(ChunkedUpdateTerrain));
-            StartCoroutine(ChunkedUpdateTerrain(lastPlayerGrid));
+            lastValidate = Time.time;
+            if (!ValidateNoOverlaps()) Debug.LogWarning("[TerrainGen] overlaps detected");
         }
-
-        if(validateRuntime && Time.time-lastValidate>1f)
-        {
-            lastValidate=Time.time;
-            if(!ValidateNoOverlaps()) Debug.LogWarning("[TerrainGen] overlaps detected");
-        }
+#endif
     }
 
     void LateUpdate()
     {
-        if(dirtyGrass) RebuildMatrix(BlockType.Grass,ref dirtyGrass);
-        if(dirtyDirt ) RebuildMatrix(BlockType.Dirt ,ref dirtyDirt );
-        if(dirtyStone) RebuildMatrix(BlockType.Stone,ref dirtyStone);
-        if(dirtyWater) RebuildMatrix(BlockType.Water,ref dirtyWater);
-
-        DrawBatch(BlockType.Grass,grassMat);
-        DrawBatch(BlockType.Dirt ,dirtMat );
-        DrawBatch(BlockType.Stone,stoneMat);
-        DrawBatch(BlockType.Water,waterMat);
+        DrawBatch(BlockType.Grass, grassMat);
+        DrawBatch(BlockType.Dirt, dirtMat);
+        DrawBatch(BlockType.Stone, stoneMat);
+        DrawBatch(BlockType.Water, waterMat);
     }
 
     /* ───────────── Terrain coroutine ───────────── */
-    IEnumerator ChunkedUpdateTerrain(Vector3Int center)
+    IEnumerator ChunkedUpdateTerrain()
     {
-        RemoveDistantBlocks(center, viewDistance + 3);
+        int radiusCullSq = (viewDistance + 3) * (viewDistance + 3);
 
-        do
+        while (true)
         {
-            blocksThisFrame = 0;
-            GenerateBlocksInRadius(center);
-            yield return null;
-        }
-        while (blocksThisFrame >= maxBlocksPerFrame);
+            CullFarBlocks(radiusCullSq);                  // ① safe incremental cull
 
-        if(debugLogs) Debug.Log($"[ChunkedUpdate] center={center}, total={world.Count}");
+            /* ② generate, throttled */
+            do
+            {
+                blocksThisFrame = 0;
+                GenerateBlocksInRadius(generationCentre);
+                yield return null;
+            }
+            while (blocksThisFrame >= maxBlocksPerFrame);
+        }
     }
 
-    void GenerateBlocksInRadius(Vector3Int center)
+    /* ───────────── Incremental culling (snapshot) ───────────── */
+    void CullFarBlocks(int radiusSq)
     {
-        foreach(var off in shell)
+        if (keySnapshot.Count == 0) return;               // nothing to cull
+
+        killList.Clear();
+        int inspected = 0;
+
+        while (snapshotCursor < keySnapshot.Count && inspected < maxCullPerFrame)
         {
-            int x=center.x+off.x, z=center.z+off.z;
-            int h=GetTerrainHeight(x,z);
+            var key = keySnapshot[snapshotCursor++];
+            if ((generationCentre - key).sqrMagnitude > radiusSq)
+                killList.Add(key);
+            ++inspected;
+        }
 
-            int yStart=Mathf.Max(center.y+minHeight, h-dirtDepth-2);
-            int yEnd  =Mathf.Min(center.y+maxHeight, Mathf.Max(h,seaLevel)+1);
+        foreach (var k in killList) RemoveBlock(k);
 
-            for(int y=yStart; y<=yEnd; ++y)
+        /* finished one full sweep? -> rebuild a fresh snapshot */
+        if (snapshotCursor >= keySnapshot.Count)
+        {
+            RebuildSnapshot();
+        }
+    }
+
+    void RebuildSnapshot()
+    {
+        keySnapshot.Clear();
+        foreach (var kv in world)
+            keySnapshot.Add(kv.Key);
+        snapshotCursor = 0;
+    }
+
+    /* ───────────── Generation ───────────── */
+    void GenerateBlocksInRadius(Vector3Int centre)
+    {
+        foreach (var off in shell)
+        {
+            int x = centre.x + off.x, z = centre.z + off.z;
+            int h = GetTerrainHeight(x, z);
+
+            int yStart = Mathf.Max(centre.y + minHeight, h - dirtDepth - 2);
+            int yEnd = Mathf.Min(centre.y + maxHeight, Mathf.Max(h, seaLevel) + 1);
+
+            for (int y = yStart; y <= yEnd; ++y)
             {
-                var p=new Vector3Int(x,y,z);
-                if(world.ContainsKey(p)) continue;              // NOTE: removed loadedAir test
+                var p = new Vector3Int(x, y, z);
+                if (world.ContainsKey(p)) continue;
 
-                var bt = generationType==GenerationType.Simple
+                var bt = generationType == GenerationType.Simple
                            ? GenerateSimpleTerrain(p)
                            : GenerateHybridTerrain(p);
 
-                if(bt==BlockType.Water)
+                if (bt == BlockType.Water)
                 {
-                    FillWaterColumn(x,z,y);                     // NEW – back-fill downwards
+                    FillWaterColumn(x, z, y);
                 }
-                else if(bt==BlockType.Air)
+                else if (bt != BlockType.Air)
                 {
-                    loadedAir.Add(p);
+                    if (PlaceBlock(p, bt) && ++blocksThisFrame >= maxBlocksPerFrame)
+                        return;
                 }
-                else if(PlaceBlock(p,bt) && ++blocksThisFrame>=maxBlocksPerFrame)
-                    return;
             }
         }
     }
 
-    /* ───────────── Water helper ───────────── */
-    void FillWaterColumn(int x,int z,int startY)
+    void FillWaterColumn(int x, int z, int startY)
     {
-        for(int y=startY; y>=seaLevel && blocksThisFrame<maxBlocksPerFrame; --y)
+        for (int y = startY; y >= seaLevel && blocksThisFrame < maxBlocksPerFrame; --y)
         {
-            var p=new Vector3Int(x,y,z);
-            if(world.ContainsKey(p)) break;           // reached already-filled cell
-            PlaceBlock(p,BlockType.Water);
-            ++blocksThisFrame; dirtyWater=true;
+            var p = new Vector3Int(x, y, z);
+            if (world.ContainsKey(p)) break;
+            PlaceBlock(p, BlockType.Water);
+            ++blocksThisFrame;
         }
     }
 
-    /* ───────────── Block placement / removal ───────────── */
+    /* ───────────── Block placement & removal ───────────── */
     bool PlaceBlock(Vector3Int g, BlockType bt)
     {
-        var m = Matrix4x4.TRS(GridToWorld(g), Quaternion.identity, Vector3.one*blockSize);
-        int idx=mats[bt].Count; mats[bt].Add(m);
-        world.Add(g,new BlockData(bt,idx));
+        var m = Matrix4x4.TRS(GridToWorld(g), Quaternion.identity, Vector3.one * blockSize);
+        int idx = mats[bt].Count;
+        mats[bt].Add(m);
+        world.Add(g, new BlockData(bt, idx));
         return true;
     }
 
     void RemoveBlock(Vector3Int g)
     {
-        if(!world.TryGetValue(g,out var bd)) return;
-        var list=mats[bd.blockType]; int last=list.Count-1;
-        list[bd.matrixIndex]=list[last]; list.RemoveAt(last);
+        if (!world.TryGetValue(g, out var bd)) return;
+        var list = mats[bd.blockType];
+        int last = list.Count - 1;
 
-        if(bd.matrixIndex<list.Count)
-            foreach(var kv in world)
-                if(kv.Value.blockType==bd.blockType && kv.Value.matrixIndex==last)
-                { world[kv.Key]=new BlockData(bd.blockType,bd.matrixIndex); break; }
+        list[bd.matrixIndex] = list[last];
+        list.RemoveAt(last);
 
-        world.Remove(g); MarkDirty(bd.blockType);
+        if (bd.matrixIndex < list.Count)
+            foreach (var kv in world)
+                if (kv.Value.blockType == bd.blockType && kv.Value.matrixIndex == last)
+                {
+                    world[kv.Key] = new BlockData(bd.blockType, bd.matrixIndex);
+                    break;
+                }
+        world.Remove(g);
     }
-
-    void MarkDirty(BlockType bt)
-    { if(bt==BlockType.Grass) dirtyGrass=true;
-      else if(bt==BlockType.Dirt) dirtyDirt=true;
-      else if(bt==BlockType.Stone) dirtyStone=true;
-      else if(bt==BlockType.Water) dirtyWater=true; }
-
-    /* ───────────── Matrix rebuild ───────────── */
-    // put this inside ProceduralTerrainGenerator
-
-    void RebuildMatrix(BlockType bt, ref bool flag)
-    {
-        var list = mats[bt];
-        list.Clear();
-
-        /* 1️⃣ snapshot all keys of the wanted block-type */
-        tmpKeys.Clear();
-        foreach (var kv in world)
-            if (kv.Value.blockType == bt)
-                tmpKeys.Add(kv.Key);
-
-        /* 2️⃣ rebuild from the snapshot, so we’re no longer
-              iterating over the dictionary we’re about to edit */
-        foreach (var key in tmpKeys)
-        {
-            var bd = world[key];
-            bd.matrixIndex = list.Count;
-            world[key] = bd;                     // safe: not iterating world now
-
-            list.Add(Matrix4x4.TRS(
-                GridToWorld(key),
-                Quaternion.identity,
-                Vector3.one * blockSize));
-        }
-        flag = false;
-    }
-
 
     /* ───────────── Noise helpers ───────────── */
-    int GetTerrainHeight(int x,int z)
+    int GetTerrainHeight(int x, int z)
     {
-        float n=MultiOctaveNoise(x,z);
-        int h=baseHeight+Mathf.RoundToInt(n*heightVariation);
-        return Mathf.Clamp(h,minHeight+2,maxHeight-2);
+        float n = MultiOctaveNoise(x, z);
+        int h = baseHeight + Mathf.RoundToInt(n * heightVariation);
+        return Mathf.Clamp(h, minHeight + 2, maxHeight - 2);
     }
-    float Noise(float x,float y)=>Mathf.PerlinNoise(x*noiseScale,y*noiseScale)*2-1;
-    float MultiOctaveNoise(float x,float y)
-    { float a=1,f=1,s=0,m=0; for(int i=0;i<4;i++){ s+=Noise(x*f,y*f)*a; m+=a; a*=.5f; f*=2; } return s/m; }
+    float Noise(float x, float y) => Mathf.PerlinNoise(x * noiseScale, y * noiseScale) * 2 - 1;
+    float MultiOctaveNoise(float x, float y)
+    {
+        float a = 1, f = 1, s = 0, m = 0;
+        for (int i = 0; i < 4; i++) { s += Noise(x * f, y * f) * a; m += a; a *= .5f; f *= 2; }
+        return s / m;
+    }
 
     BlockType GenerateSimpleTerrain(Vector3Int gp)
     {
-        int h=GetTerrainHeight(gp.x,gp.z);
-        if(gp.y>h)  return (gp.y<=seaLevel&&h<=seaLevel)?BlockType.Water:BlockType.Air;
-        if(gp.y==h) return h<=seaLevel?BlockType.Dirt:BlockType.Grass;
-        return gp.y>h-dirtDepth?BlockType.Dirt:BlockType.Stone;
+        int h = GetTerrainHeight(gp.x, gp.z);
+        if (gp.y > h)  return (gp.y <= seaLevel && h <= seaLevel) ? BlockType.Water : BlockType.Air;
+        if (gp.y == h) return h <= seaLevel ? BlockType.Dirt : BlockType.Grass;
+        return gp.y > h - dirtDepth ? BlockType.Dirt : BlockType.Stone;
     }
     BlockType GenerateHybridTerrain(Vector3Int gp)
     {
-        var baseT=GenerateSimpleTerrain(gp);
-        if(baseT==BlockType.Stone && gp.y>minHeight+2)
+        var baseT = GenerateSimpleTerrain(gp);
+        if (baseT == BlockType.Stone && gp.y > minHeight + 2)
         {
-            float caveNoise=Noise(gp.x*.08f,gp.z*.08f+gp.y*.06f);
-            if(caveNoise>.6f) return BlockType.Air;
+            float cave = Noise(gp.x * .08f, gp.z * .08f + gp.y * .06f);
+            if (cave > .6f) return BlockType.Air;
         }
         return baseT;
     }
 
     /* ───────────── Rendering ───────────── */
-    void DrawBatch(BlockType bt,Material mat)
+    void DrawBatch(BlockType bt, Material mat)
     {
-        var list=mats[bt]; if(list.Count==0) return;
-        const int batch=1023;
-        for(int i=0;i<list.Count;i+=batch)
-            Graphics.DrawMeshInstanced(blockMesh,0,mat,
-                list.GetRange(i,Mathf.Min(batch,list.Count-i)),null,
-                UnityEngine.Rendering.ShadowCastingMode.On,true,0,null,
-                UnityEngine.Rendering.LightProbeUsage.Off,null);
+        var list = mats[bt];
+        if (list.Count == 0) return;
+
+        for (int i = 0; i < list.Count; i += kBatch)
+        {
+            int cnt = Mathf.Min(kBatch, list.Count - i);
+            list.CopyTo(i, drawBuf, 0, cnt);
+            Graphics.DrawMeshInstanced(blockMesh, 0, mat, drawBuf, cnt, null,
+                                       UnityEngine.Rendering.ShadowCastingMode.On,
+                                       true, 0, null,
+                                       UnityEngine.Rendering.LightProbeUsage.Off, null);
+        }
     }
 
     /* ───────────── Misc helpers ───────────── */
-    Vector3 GetPlayerPos()=>player?player.position:Vector3.zero;
-    Vector3Int WorldToGrid(Vector3 w)=>new(Mathf.RoundToInt(w.x/blockSize),
-                                           Mathf.RoundToInt(w.y/blockSize),
-                                           Mathf.RoundToInt(w.z/blockSize));
-    Vector3 GridToWorld(Vector3Int g)=>new(g.x*blockSize+blockSize*.5f,
-                                           g.y*blockSize+blockSize*.5f,
-                                           g.z*blockSize+blockSize*.5f);
+    Vector3 GetPlayerPos() => player ? player.position : Vector3.zero;
+    Vector3Int WorldToGrid(Vector3 w) => new(Mathf.RoundToInt(w.x / blockSize),
+                                            Mathf.RoundToInt(w.y / blockSize),
+                                            Mathf.RoundToInt(w.z / blockSize));
+    Vector3 GridToWorld(Vector3Int g) => new(g.x * blockSize + blockSize * .5f,
+                                             g.y * blockSize + blockSize * .5f,
+                                             g.z * blockSize + blockSize * .5f);
 
-    void RemoveDistantBlocks(Vector3Int c,int r)
-    {
-        List<Vector3Int> rem=null;
-        foreach(var kv in world) if((c-kv.Key).sqrMagnitude>r*r) (rem??=new()).Add(kv.Key);
-        if(rem!=null) foreach(var p in rem) RemoveBlock(p);
-    }
-
+#if UNITY_EDITOR
     bool ValidateNoOverlaps()
     {
-        var set=new HashSet<Vector3Int>();
-        foreach(var kv in world) if(!set.Add(kv.Key)) return false;
+        var set = new HashSet<Vector3Int>();
+        foreach (var kv in world)
+            if (!set.Add(kv.Key)) return false;
         return true;
     }
+#endif
 
     void BuildShell(int r)
     {
-        shell=new List<Vector3Int>(r*r*4);
-        for(int dx=-r;dx<=r;++dx) for(int dz=-r;dz<=r;++dz)
-            if(dx*dx+dz*dz<=r*r) shell.Add(new Vector3Int(dx,0,dz));
-        shell.Sort((a,b)=>(a.x*a.x+a.z*a.z).CompareTo(b.x*b.x+b.z*b.z)); // near→far
+        shell = new List<Vector3Int>(r * r * 4);
+        for (int dx = -r; dx <= r; ++dx)
+            for (int dz = -r; dz <= r; ++dz)
+                if (dx * dx + dz * dz <= r * r)
+                    shell.Add(new Vector3Int(dx, 0, dz));
+
+        shell.Sort((a, b) =>
+            (a.x * a.x + a.z * a.z).CompareTo(b.x * b.x + b.z * b.z));
     }
 }
