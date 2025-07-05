@@ -167,9 +167,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   generationType: 0
-  viewDistance: 20
-  blockSize: 1
+  viewDistance: 50
   maxBlocksPerFrame: 200
+  blockSize: 1
   maxHeight: 24
   minHeight: -8
   noiseScale: 0.015
@@ -183,7 +183,6 @@ MonoBehaviour:
   stoneMat: {fileID: 2100000, guid: e9388fa1a421dee4d9ffdf9ae833fc81, type: 2}
   waterMat: {fileID: 2100000, guid: a9e850e50b743244f8f4e3528fd0bcca, type: 2}
   player: {fileID: 1055223870}
-  debugLogs: 1
   validateRuntime: 1
 --- !u!1 &1004176384
 GameObject:
@@ -341,7 +340,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
