@@ -168,8 +168,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   generationType: 0
   viewDistance: 50
-  maxBlocksPerFrame: 200
   blockSize: 1
+  maxBlocksPerFrame: 200
   maxHeight: 24
   minHeight: -8
   noiseScale: 0.015
