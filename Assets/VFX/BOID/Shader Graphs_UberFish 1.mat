@@ -39,7 +39,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _Galaxy:
-        m_Texture: {fileID: 8900000, guid: 5054405c9f200a54dbc61fa7fb2e569f, type: 3}
+        m_Texture: {fileID: 8900000, guid: ceef2a8ba8e167f48b0fefdfc87993eb, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _StarsCubeMap:
@@ -68,7 +68,7 @@ Material:
     - _DstBlend: 0
     - _FishLength: 0.63
     - _FlagYawAmplitude: 0.01
-    - _FresnelPower: 0
+    - _FresnelPower: -0.95
     - _PivotOffset: 0.01
     - _QueueControl: 0
     - _QueueOffset: 0
@@ -84,6 +84,6 @@ Material:
     - _ZWriteControl: 0
     m_Colors:
     - _Color: {r: 1.7188214, g: 6.7046237, b: 8.474189, a: 1}
-    - _GalaxyColor: {r: 0.005295483, g: 0.029013898, b: 0.16037738, a: 1}
-    - _StarsColor: {r: 0, g: 0, b: 0, a: 0}
+    - _GalaxyColor: {r: 0.05991155, g: 0.3282548, b: 1.8144629, a: 1}
+    - _StarsColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
