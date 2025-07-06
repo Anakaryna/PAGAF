@@ -181,9 +181,10 @@ MonoBehaviour:
   grassMat: {fileID: 2100000, guid: b34d5677c5316914db6f1e3bac369565, type: 2}
   dirtMat: {fileID: 2100000, guid: db155d5a39793c744be16bd5356af1e4, type: 2}
   stoneMat: {fileID: 2100000, guid: e9388fa1a421dee4d9ffdf9ae833fc81, type: 2}
-  waterMat: {fileID: 2100000, guid: a9e850e50b743244f8f4e3528fd0bcca, type: 2}
+  waterMat: {fileID: 2100000, guid: 8dc6b3cf5126665458423d8f2e48080e, type: 2}
   player: {fileID: 1055223870}
   validateRuntime: 1
+  useGreedyWaterMesh: 0
 --- !u!1 &1004176384
 GameObject:
   m_ObjectHideFlags: 0
