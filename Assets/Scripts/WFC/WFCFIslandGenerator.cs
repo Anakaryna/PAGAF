@@ -1,18 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using Unity.Collections;
 using UnityEngine;
+using UEVector2 = UnityEngine.Vector2;
 
 /// <summary>
-/// Wave Function Collapse (WFC) island generator
+/// Drop‑in replacement for WFCFIslandGenerator (same public API, same results).
 /// </summary>
-public class WFCFIslandGenerator : MonoBehaviour
+public sealed class WFCFIslandGenerator : MonoBehaviour
 {
+    /* ---------- PUBLIC INSPECTOR FIELDS ---------- */
+
     [Header("Grid Size")]
-    public int width  = 20;
+    public int width = 20;
     public int height = 20;
 
     [Header("Cell Spacing (X,Z)")]
-    public Vector2 cellSize = new Vector2(2f, 2f);
+    public UEVector2 cellSize = new UEVector2(2f, 2f);
 
     [Header("Your Six Tile Prefabs")]
     [Tooltip("0: Air, 1: Island, 2: Water, 3: Bubble, 4: Tree, 5: Animal")]
@@ -27,343 +32,440 @@ public class WFCFIslandGenerator : MonoBehaviour
         public float weight = 1f;
     }
 
-    // wave[x,y,t]: is tile t still possible at cell (x,y)?
-    private bool[,,] wave;
-    // neighborAllowed[a,b,d]: can tile b sit in direction d of tile a?
-    private bool[,,] neighborAllowed;
-    private System.Random rng;
+    /* ---------- INTERNAL CONSTANTS ---------- */
 
-    void Start()
+    private const int DIR_COUNT = 4;
+    private static readonly int[] DX = { 0, 1, 0, -1 }; // N,E,S,W
+    private static readonly int[] DY = { 1, 0, -1, 0 };
+
+    /* ---------- RUNTIME DATA ---------- */
+
+    // One UINT/ULong per cell. Bit i == 1 means tile i is still possible.
+    private NativeArray<uint> _wave; // size = width * height
+    private NativeArray<uint> _compatibleMaskN; // [tile]
+    private NativeArray<uint> _compatibleMaskE; // [tile]
+    private NativeArray<uint> _compatibleMaskS; // [tile]
+    private NativeArray<uint> _compatibleMaskW; // [tile]
+
+    // Entropy management
+    private readonly MinHeap<CellEntropy> _heap = new();
+
+    private readonly Queue<int> _propagateQueue = new(); // linear index
+    private System.Random _rng;
+
+    /* ---------- MONO BEHAVIOUR ---------- */
+
+    private void Start() => _ = StartCoroutine(GenerateIslandCoroutine());
+
+    /* ---------- HIGH‑LEVEL CONTROL ---------- */
+
+    private System.Collections.IEnumerator GenerateIslandCoroutine()
     {
-        rng = new System.Random();
-        BuildNeighborRules();
-        GenerateIsland();
-    }
+        _rng = new System.Random();
+        BuildCompatibilityMasks();
 
-    /// <summary>
-    /// Automatically build neighborAllowed[,] based purely on each tile's name
-    /// </summary>
-    void BuildNeighborRules()
-    {
-        int T = tiles.Length;
-        neighborAllowed = new bool[T, T, 4];
-
-        for (int a = 0; a < T; a++)
-        for (int b = 0; b < T; b++)
+        while (true) // infinite loop until success
         {
-            bool ok = IsLogicallyAllowed(tiles[a].name, tiles[b].name);
-            // same rule in all 4 cardinal directions
-            for (int d = 0; d < 4; d++)
-                neighborAllowed[a, b, d] = ok;
-        }
-    }
+            ResetDataStructures();
 
-    /// <summary>
-    /// Logical adjacency
-    /// </summary>
-    bool IsLogicallyAllowed(string a, string b)
-    {
-        bool aAir = a.Equals("Air",       StringComparison.OrdinalIgnoreCase);
-        bool bAir = b.Equals("Air",       StringComparison.OrdinalIgnoreCase);
-        if (aAir && bAir) return true;
-        if (aAir) return b.Equals("Island", StringComparison.OrdinalIgnoreCase);
-        if (bAir) return a.Equals("Island", StringComparison.OrdinalIgnoreCase);
+            // Run WFC
+            var stepper = WfcStepper();
+            while (stepper.MoveNext())
+                yield return null; // spread work over frames
 
+            // Did any cell end up with mask==0 ?
+            bool bad = false;
+            for (int i = 0; i < _wave.Length && !bad; i++)
+                bad |= _wave[i] == 0;
 
+            if (bad)
+            {
+                Debug.LogWarning("WFC contradiction — retrying");
+                continue; // restart the whole process
+            }
 
-        bool aDecor = a.Equals("Tree", StringComparison.OrdinalIgnoreCase) || a.Equals("Animal", StringComparison.OrdinalIgnoreCase);
-        bool bDecor = b.Equals("Tree", StringComparison.OrdinalIgnoreCase) || b.Equals("Animal", StringComparison.OrdinalIgnoreCase);
-
-        if (aDecor && bDecor) return true; // tree/animal next to each other = ok
-        if (aDecor) return b.Equals("Island", StringComparison.OrdinalIgnoreCase) || b.Equals("Water", StringComparison.OrdinalIgnoreCase);
-        if (bDecor) return a.Equals("Island", StringComparison.OrdinalIgnoreCase) || a.Equals("Water", StringComparison.OrdinalIgnoreCase);
-
-
-        
-        bool aBubble  = a.Equals("Bubble",   StringComparison.OrdinalIgnoreCase);
-        bool bBubble  = b.Equals("Bubble",   StringComparison.OrdinalIgnoreCase);
-        if (aBubble)  return b.Equals("Water",  StringComparison.OrdinalIgnoreCase);
-        if (bBubble)  return a.Equals("Water",  StringComparison.OrdinalIgnoreCase);
-
-        // Island ↔ Water, Island ↔ Island, Water ↔ Water all allowed
-        return true;
-    }
-
-    /// <summary>
-    /// Starts a fresh WFC run, retries on contradiction
-    /// </summary>
-    public void GenerateIsland()
-    {
-        ClearPrevious();
-        InitializeWave();
-
-        bool ok = RunWFC();
-        if (!ok)
-        {
-            Debug.Log("Contradiction hit, retrying…");
-            GenerateIsland();
-        }
-        else
-        {
             InstantiateTiles();
             FillAirWithWaterOrBubble();
+            Debug.Log($"Island generated – {transform.childCount} tiles");
+            break; // success ⇒ leave coroutine
         }
     }
 
-    /// <summary>
-    /// Clears the previous island by removing all children of this GameObject
-    /// </summary>
-    void ClearPrevious()
+    /* ---------- PRECOMPUTED COMPATIBILITY ---------- */
+
+    private void BuildCompatibilityMasks()
     {
-        // remove old children
-        foreach (Transform c in transform)
-            DestroyImmediate(c.gameObject);
+        int tCount = tiles.Length;
+        if (_compatibleMaskN.IsCreated) _compatibleMaskN.Dispose();
+        if (_compatibleMaskE.IsCreated) _compatibleMaskE.Dispose();
+        if (_compatibleMaskS.IsCreated) _compatibleMaskS.Dispose();
+        if (_compatibleMaskW.IsCreated) _compatibleMaskW.Dispose();
+
+        _compatibleMaskN = new NativeArray<uint>(tCount, Allocator.Persistent);
+        _compatibleMaskE = new NativeArray<uint>(tCount, Allocator.Persistent);
+        _compatibleMaskS = new NativeArray<uint>(tCount, Allocator.Persistent);
+        _compatibleMaskW = new NativeArray<uint>(tCount, Allocator.Persistent);
+
+        for (int a = 0; a < tCount; a++)
+        {
+            uint maskN = 0, maskE = 0, maskS = 0, maskW = 0;
+            for (int b = 0; b < tCount; b++)
+            {
+                bool ok = IsLogicallyAllowed(tiles[a].name, tiles[b].name);
+                if (ok)
+                {
+                    maskN |= 1u << b;
+                    maskE |= 1u << b;
+                    maskS |= 1u << b;
+                    maskW |= 1u << b;
+                }
+            }
+            _compatibleMaskN[a] = maskN;
+            _compatibleMaskE[a] = maskE;
+            _compatibleMaskS[a] = maskS;
+            _compatibleMaskW[a] = maskW;
+        }
     }
 
-    /// <summary>
-    /// Initializes the wave to allow all tiles in every cell.
-    /// </summary>
-    void InitializeWave()
+    private static bool IsLogicallyAllowed(string a, string b)
     {
-        int T = tiles.Length;
-        wave = new bool[width, height, T];
+        bool aAir = a.Equals("Air", StringComparison.OrdinalIgnoreCase);
+        bool bAir = b.Equals("Air", StringComparison.OrdinalIgnoreCase);
+        bool aIsl = a.Equals("Island", StringComparison.OrdinalIgnoreCase);
+        bool bIsl = b.Equals("Island", StringComparison.OrdinalIgnoreCase);
+        bool aWater = a.Equals("Water", StringComparison.OrdinalIgnoreCase);
+        bool bWater = b.Equals("Water", StringComparison.OrdinalIgnoreCase);
 
-        float cx = width  / 2f;
-        float cy = height / 2f;
-        float radius = Mathf.Min(width, height) / 2f;
+        if (aAir && bAir) return true;
+        if (aAir) return bIsl;
+        if (bAir) return aIsl;
 
-        for (int x = 0; x < width;  x++)
+        bool aDecor =
+            a.Equals("Tree", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("Animal", StringComparison.OrdinalIgnoreCase);
+        bool bDecor =
+            b.Equals("Tree", StringComparison.OrdinalIgnoreCase) ||
+            b.Equals("Animal", StringComparison.OrdinalIgnoreCase);
+        if (aDecor && bDecor) return true;
+        if (aDecor) return bIsl || bWater;
+        if (bDecor) return aIsl || aWater;
+
+        bool aBubble = a.Equals("Bubble", StringComparison.OrdinalIgnoreCase);
+        bool bBubble = b.Equals("Bubble", StringComparison.OrdinalIgnoreCase);
+        if (aBubble) return bWater;
+        if (bBubble) return aWater;
+
+        return true; // Island↔Island etc.
+    }
+
+    /* ---------- INITIALISATION ---------- */
+
+    private void ResetDataStructures()
+    {
+        int cells = width * height;
+        if (_wave.IsCreated) _wave.Dispose();
+        _wave = new NativeArray<uint>(cells, Allocator.Persistent);
+
+        // Allow everything initially
+        uint all = (uint)((1 << tiles.Length) - 1);
+        for (int i = 0; i < cells; i++) _wave[i] = all;
+
+        _heap.Clear();
+        _propagateQueue.Clear();
+
+        float cx = width / 2f, cy = height / 2f,
+              radius = Mathf.Min(width, height) / 2f;
+
+        // Seed entropy & circle mask
+        for (int x = 0; x < width; x++)
         for (int y = 0; y < height; y++)
         {
-            float dx = x - cx;
-            float dy = y - cy;
+            float dx = x - cx, dy = y - cy;
             float dist = Mathf.Sqrt(dx * dx + dy * dy);
-
-            bool insideCircle = dist <= radius;
-
-            for (int t = 0; t < T; t++)
+            if (dist > radius)
             {
-                // If outside circle, only allow "Air" tile (index 0)
-                if (!insideCircle)
-                    wave[x, y, t] = (t == 0); // Air only
-                else
-                    wave[x, y, t] = true; // All tiles possible
+                // outside – only Air (index 0)
+                _wave[Idx(x, y)] = 1u;
             }
+
+            _heap.Push(CalcEntropy(x, y));
         }
     }
 
+    /* ---------- CORE WFC ---------- */
 
-    /// <summary>
-    /// Runs the Wave Function Collapse algorithm.
-    /// </summary>
-    bool RunWFC()
+    // This method is no longer used due to changes in GenerateIslandCoroutine
+    // private bool RunWfcCoroutine(out IEnumerator<object> routine)
+    // {
+    //     routine = WfcStepper();
+    //     return true; // success reported through routine
+    // }
+
+    private IEnumerator<object> WfcStepper()
     {
-        // each iteration collapses one cell
-        for (int step = 0; step < width * height; step++)
+        const int CELLS_PER_FRAME = 512;        // tweak to taste
+        int stepBudget = CELLS_PER_FRAME;
+
+        while (_heap.Count > 0)
         {
-            var pos = Observe();
-            if (pos.x < 0) return false;  // contradiction
+            CellEntropy ce = _heap.PopMin();
+            if (!IsStillValid(ce)) continue;
+
+            // Collapse one cell
+            uint chosen = SelectTileMask(ce.waveMask);
+            _wave[ce.index] = chosen;
+
+            _propagateQueue.Enqueue(ce.index);
             Propagate();
-        }
-        return true;
-    }
 
-    /// <summary>
-    /// Finds the cell with lowest non-zero entropy, collapses it to one tile
-    /// </summary>
-    Vector2Int Observe()
-    {
-        int bestX = -1, bestY = -1;
-        float bestEntropy = float.MaxValue;
-        int T = tiles.Length;
-
-        for (int x = 0; x < width; x++)
-        for (int y = 0; y < height; y++)
-        {
-            // count how many tiles are still possible
-            int count = 0;
-            float sumW = 0, sumWlogW = 0;
-            for (int t = 0; t < T; t++) if (wave[x, y, t])
+            // budget bookkeeping
+            if (--stepBudget == 0)
             {
-                count++;
-                float w = tiles[t].weight;
-                sumW    += w;
-                sumWlogW += w * Mathf.Log(w);
-            }
-            if (count == 0)
-                return new Vector2Int(-1, -1);
-            if (count == 1) 
-                continue;
-
-            // Shannon entropy + tiny jitter to break ties
-            float entropy = Mathf.Log(sumW) - sumWlogW / sumW
-                            + (float)(rng.NextDouble() * 1e-6);
-            if (entropy < bestEntropy)
-            {
-                bestEntropy = entropy;
-                bestX = x; bestY = y;
+                stepBudget = CELLS_PER_FRAME;
+                yield return null;              // give the frame back
             }
         }
-
-        if (bestX < 0) // already fully collapsed
-            return new Vector2Int(-1, -1);
-
-        // pick exactly one tile (weighted)
-        wave[bestX, bestY, SelectTile(bestX, bestY)] = true;
-        for (int t = 0; t < T; t++)
-            if (t != SelectTile(bestX, bestY)) 
-                wave[bestX, bestY, t] = false;
-
-        return new Vector2Int(bestX, bestY);
     }
-    
-    /// <summary>
-    /// Selects a tile at (x,y) based on the weights of the remaining tiles.
-    /// </summary>
-    int SelectTile(int x, int y)
-    {
-        float sum = 0;
-        int T = tiles.Length;
-        for (int t = 0; t < T; t++)
-            if (wave[x, y, t]) sum += tiles[t].weight;
 
-        float r = (float)(rng.NextDouble() * sum);
-        for (int t = 0; t < T; t++) if (wave[x, y, t])
+
+    private void Propagate()
+    {
+        while (_propagateQueue.Count > 0)
         {
+            int idx = _propagateQueue.Dequeue();
+            (int x, int y) = UnIdx(idx);
+            uint cellMask = _wave[idx];
+
+            for (int d = 0; d < DIR_COUNT; d++)
+            {
+                int nx = x + DX[d];
+                int ny = y + DY[d];
+                if (!InBounds(nx, ny)) continue;
+
+                int nIdx = Idx(nx, ny);
+                uint before = _wave[nIdx];
+                uint allow = AllowedMaskForNeighbour(cellMask, d);
+                uint after = before & allow;
+
+                if (after != before && after != 0)
+                {
+                    _wave[nIdx] = after;
+                    _heap.Push(CalcEntropy(nx, ny));
+                    _propagateQueue.Enqueue(nIdx);
+                }
+            }
+        }
+    }
+
+    /* ---------- TILE WEIGHTS / ENTROPY ---------- */
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private uint SelectTileMask(uint mask)
+    {
+        // Weighted random pick
+        double total = 0;
+        for (int t = 0; t < tiles.Length; t++)
+            if ((mask & (1u << t)) != 0)
+                total += tiles[t].weight;
+
+        double r = _rng.NextDouble() * total;
+        for (int t = 0; t < tiles.Length; t++)
+        {
+            if ((mask & (1u << t)) == 0) continue;
             r -= tiles[t].weight;
-            if (r <= 0) return t;
+            if (r <= 0) return (uint)(1 << t);
         }
-        // fallback
-        for (int t = 0; t < T; t++) if (wave[x, y, t]) return t;
-        return 0;
+        return mask; // fallback – shouldn't occur
     }
-    
-    /// <summary>
-    /// Fills pure Air cells with Water or Bubble based on neighbor counts
-    /// </summary>
-    void FillAirWithWaterOrBubble()
+
+    private CellEntropy CalcEntropy(int x, int y)
     {
-        int airIndex = 0;
-        int waterIndex = 2;
-        int bubbleIndex = 3;
+        int idx = Idx(x, y);
+        uint mask = _wave[idx];
+        if ((mask & (mask - 1)) == 0) // power of two → already collapsed
+            return new CellEntropy(float.PositiveInfinity, idx, mask);
+
+        double sumW = 0, sumWLogW = 0;
+        for (int t = 0; t < tiles.Length; t++)
+        {
+            if ((mask & (1u << t)) == 0) continue;
+            double w = tiles[t].weight;
+            sumW += w;
+            sumWLogW += w * Math.Log(w);
+        }
+
+        float entropy = (float)(
+            Math.Log(sumW) - sumWLogW / sumW + _rng.NextDouble() * 1e-6
+        ); // jitter
+        return new CellEntropy(entropy, idx, mask);
+    }
+
+    /* ---------- UNITY-COMPATIBLE BIT OPERATIONS ---------- */
+
+    /// <summary>
+    /// Unity-compatible replacement for BitOperations.TrailingZeroCount
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int TrailingZeroCount(uint mask)
+    {
+        if (mask == 0) return 32;
+        int cnt = 0;
+        while ((mask & 1) == 0)
+        {
+            mask >>= 1;
+            cnt++;
+        }
+        return cnt;
+    }
+
+    /* ---------- FILL AIR / INSTANTIATE ---------- */
+
+    private void FillAirWithWaterOrBubble()
+    {
+        const int AIR = 0, WATER = 2, BUBBLE = 3;
 
         for (int x = 0; x < width; x++)
         for (int y = 0; y < height; y++)
         {
-            // Check if this cell is pure Air
-            if (!IsCollapsedTo(x, y, airIndex)) continue;
+            int idx = Idx(x, y);
+            if (_wave[idx] != 1u << AIR) continue; // not pure air
 
-            // Count how many neighbors are Water
-            int waterNeighbors = 0;
+            int waterNeighbours = 0;
             for (int dx = -1; dx <= 1; dx++)
             for (int dy = -1; dy <= 1; dy++)
             {
                 if (dx == 0 && dy == 0) continue;
-                int nx = x + dx;
-                int ny = y + dy;
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
-                {
-                    if (IsCollapsedTo(nx, ny, waterIndex))
-                        waterNeighbors++;
-                }
+                int nx = x + dx, ny = y + dy;
+                if (InBounds(nx, ny) && _wave[Idx(nx, ny)] == 1u << WATER)
+                    waterNeighbours++;
             }
 
-            // Only replace Air if surrounded by at least 2 Water
-            if (waterNeighbors >= 2)
-            {
-                int chosen = (rng.NextDouble() < 0.8f) ? bubbleIndex : waterIndex;
-                SetTile(x, y, chosen);
-            }
+            if (waterNeighbours >= 2)
+                _wave[idx] =
+                    1u << (_rng.NextDouble() < 0.8 ? BUBBLE : WATER);
         }
 
-        // Regenerate with updated wave
-        ClearPrevious();
+        /* clear previous meshes **before** re‑instantiating */
+        foreach (Transform c in transform) DestroyImmediate(c.gameObject);
         InstantiateTiles();
     }
 
-    /// <summary>
-    /// Checks if the cell at (x,y) is fully collapsed to a specific tile index
-    /// </summary>
-    bool IsCollapsedTo(int x, int y, int tileIndex)
+    private void InstantiateTiles()
     {
-        int count = 0;
-        for (int t = 0; t < tiles.Length; t++)
-            if (wave[x, y, t]) count++;
+        foreach (Transform c in transform) DestroyImmediate(c.gameObject);
 
-        return count == 1 && wave[x, y, tileIndex];
-    }
-
-    /// <summary>
-    /// Sets the tile at (x,y) to a specific tile index, collapsing it
-    /// </summary>
-    void SetTile(int x, int y, int tileIndex)
-    {
-        for (int t = 0; t < tiles.Length; t++)
-            wave[x, y, t] = (t == tileIndex);
-    }
-
-
-    
-    /// <summary>
-    /// Propagates the constraints of the collapsed cell to its neighbors
-    /// </summary>
-    void Propagate()
-    {
-        var queue = new Queue<Vector2Int>();
-        int T = tiles.Length;
-        // enqueue every fully-collapsed cell
-        for (int x = 0; x < width;  x++)
+        for (int x = 0; x < width; x++)
         for (int y = 0; y < height; y++)
         {
-            int c = 0;
-            for (int t = 0; t < T; t++) if (wave[x,y,t]) c++;
-            if (c == 1) queue.Enqueue(new Vector2Int(x,y));
+            uint mask = _wave[Idx(x, y)];
+            if (mask == 0) // ← skip contradictions
+                continue;
+
+            int tileIndex = TrailingZeroCount(mask);
+            Vector3 pos =
+                transform.position + new Vector3(x * cellSize.x, 0, y * cellSize.y);
+            Instantiate(tiles[tileIndex].prefab, pos, Quaternion.identity, transform);
         }
+    }
+    /* ---------- INLINE HELPERS ---------- */
 
-        while (queue.Count > 0)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private uint AllowedMaskForNeighbour(uint cellMask, int dir)
+    {
+        uint acc = 0;
+        // Iterate set bits in cellMask
+        uint m = cellMask;
+        while (m != 0)
         {
-            var p = queue.Dequeue();
-            for (int d = 0; d < 4; d++)
-            {
-                int nx = p.x + (d==1 ? 1 : d==3 ? -1 : 0);
-                int ny = p.y + (d==0 ? 1 : d==2 ? -1 : 0);
-                if (nx<0||nx>=width||ny<0||ny>=height) continue;
-
-                bool changed = false;
-                for (int t = 0; t < T; t++) if (wave[nx,ny,t])
+            int t = TrailingZeroCount(m);
+            acc |=
+                dir switch
                 {
-                    bool ok = false;
-                    for (int t2 = 0; t2 < T; t2++)
-                        if (wave[p.x,p.y,t2] && neighborAllowed[t2,t,d])
-                        {
-                            ok = true; break;
-                        }
-                    if (!ok)
-                    {
-                        wave[nx,ny,t] = false;
-                        changed = true;
-                    }
-                }
-                if (changed) queue.Enqueue(new Vector2Int(nx,ny));
+                    0 => _compatibleMaskN[t],
+                    1 => _compatibleMaskE[t],
+                    2 => _compatibleMaskS[t],
+                    _ => _compatibleMaskW[t],
+                };
+            m &= m - 1; // clear lowest
+        }
+        return acc;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool InBounds(int x, int y) => (uint)x < width && (uint)y < height;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int Idx(int x, int y) => x + y * width;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private (int, int) UnIdx(int idx) => (idx % width, idx / width);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool IsStillValid(CellEntropy ce) =>
+        _wave[ce.index] == ce.waveMask && ce.entropy == ce.entropy; // NaN check
+
+    /* ---------- NESTED TYPES ---------- */
+
+    private readonly struct CellEntropy : IComparable<CellEntropy>
+    {
+        public readonly float entropy;
+        public readonly int index;
+        public readonly uint waveMask;
+        public CellEntropy(float e, int i, uint m)
+        {
+            entropy = e;
+            index = i;
+            waveMask = m;
+        }
+        public int CompareTo(CellEntropy other) => entropy.CompareTo(other.entropy);
+    }
+
+    /// <summary> Extremely small binary min‑heap. </summary>
+    private sealed class MinHeap<T> where T : IComparable<T>
+    {
+        private readonly List<T> _data = new();
+        public int Count => _data.Count;
+        public void Clear() => _data.Clear();
+        public void Push(T item)
+        {
+            _data.Add(item);
+            int c = _data.Count - 1;
+            while (c > 0)
+            {
+                int p = (c - 1) >> 1;
+                if (_data[c].CompareTo(_data[p]) >= 0) break;
+                (_data[c], _data[p]) = (_data[p], _data[c]);
+                c = p;
             }
+        }
+        public T PopMin()
+        {
+            int last = _data.Count - 1;
+            T min = _data[0];
+            _data[0] = _data[last];
+            _data.RemoveAt(last);
+            int p = 0;
+            while (true)
+            {
+                int l = (p << 1) + 1;
+                if (l >= _data.Count) break;
+                int r = l + 1;
+                int c = (r < _data.Count && _data[r].CompareTo(_data[l]) < 0) ? r : l;
+                if (_data[p].CompareTo(_data[c]) <= 0) break;
+                (_data[p], _data[c]) = (_data[c], _data[p]);
+                p = c;
+            }
+            return min;
         }
     }
 
-    /// <summary>
-    /// Instantiate your flat island on X,Z at Y=0.
-    /// </summary>
-    void InstantiateTiles()
+    /* ---------- CLEANUP ---------- */
+    private void OnDestroy()
     {
-        for (int x = 0; x < width;  x++)
-        for (int y = 0; y < height; y++)
-        {
-            for (int t = 0; t < tiles.Length; t++) if (wave[x,y,t])
-            {
-                Vector3 pos = transform.position
-                            + new Vector3(x * cellSize.x, 0, y * cellSize.y);
-                Instantiate(tiles[t].prefab, pos, Quaternion.identity, transform);
-                break;
-            }
-        }
+        if (_wave.IsCreated) _wave.Dispose();
+        if (_compatibleMaskN.IsCreated) _compatibleMaskN.Dispose();
+        if (_compatibleMaskE.IsCreated) _compatibleMaskE.Dispose();
+        if (_compatibleMaskS.IsCreated) _compatibleMaskS.Dispose();
+        if (_compatibleMaskW.IsCreated) _compatibleMaskW.Dispose();
     }
 }
