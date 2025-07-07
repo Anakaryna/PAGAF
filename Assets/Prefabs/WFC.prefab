@@ -77,8 +77,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6a2db1b7a92546219a722c3b54af115c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  width: 50
-  height: 50
+  width: 20
+  height: 20
   cellSize: {x: 2, y: 2}
   tiles:
   - name: Void
@@ -104,7 +104,7 @@ MonoBehaviour:
   - name: Animal
     prefab: {fileID: 7564987849417079447, guid: 0440d4216590f04479255ce19f55139e,
       type: 3}
-    weight: 0.44
+    weight: 0.1
 --- !u!1001 &6843148535672963113
 PrefabInstance:
   m_ObjectHideFlags: 0
