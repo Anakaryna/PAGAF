@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /// <summary>
 /// Wave Function Collapse (WFC) island generator
 /// </summary>
+[ExecuteAlways]
 public class WFCFIslandGenerator : MonoBehaviour
 {
     [Header("Grid Size")]
@@ -33,12 +36,12 @@ public class WFCFIslandGenerator : MonoBehaviour
     private bool[,,] neighborAllowed;
     private System.Random rng;
 
-    void Start()
-    {
-        rng = new System.Random();
-        BuildNeighborRules();
-        GenerateIsland();
-    }
+    // void Start()
+    // {
+    //     rng = new System.Random();
+    //     BuildNeighborRules();
+    //     GenerateIsland();
+    // }
 
     /// <summary>
     /// Automatically build neighborAllowed[,] based purely on each tile's name
@@ -88,12 +91,20 @@ public class WFCFIslandGenerator : MonoBehaviour
         // Island ↔ Water, Island ↔ Island, Water ↔ Water all allowed
         return true;
     }
+    
 
     /// <summary>
     /// Starts a fresh WFC run, retries on contradiction
     /// </summary>
+    [ContextMenu("WFC → Generate Island")]
     public void GenerateIsland()
     {
+        // ensure rng & rules exist
+        if (rng == null) {
+            rng = new System.Random();
+            BuildNeighborRules();
+        }
+        
         ClearPrevious();
         InitializeWave();
 
@@ -108,6 +119,12 @@ public class WFCFIslandGenerator : MonoBehaviour
             InstantiateTiles();
             FillAirWithWaterOrBubble();
         }
+        
+#if UNITY_EDITOR
+        EditorUtility.SetDirty(gameObject);
+        if (!Application.isPlaying)
+            EditorSceneManager.MarkSceneDirty(gameObject.scene);
+#endif
     }
 
     /// <summary>
@@ -115,10 +132,13 @@ public class WFCFIslandGenerator : MonoBehaviour
     /// </summary>
     void ClearPrevious()
     {
-        // remove old children
-        foreach (Transform c in transform)
-            DestroyImmediate(c.gameObject);
+        // Destroy all direct children, backwards so the index stays valid
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            DestroyImmediate(transform.GetChild(i).gameObject);
+        }
     }
+
 
     /// <summary>
     /// Initializes the wave to allow all tiles in every cell.
