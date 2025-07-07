@@ -20,6 +20,17 @@ public struct FishData
     public float3 smoothedDesiredDirection;
     public bool isAvoiding;
     public bool isInEmergency;
+    
+    // Dragon-specific properties
+    public float aggressionLevel;
+    public float huntingRadius;
+    public float disruptionStrength;
+    public bool isHunting;
+    public float3 huntTarget;
+    public float energyLevel;
+    public float restTimer;
+    public bool isResting;
+    public float fearLevel;
 }
 
 [BurstCompile]
@@ -44,8 +55,8 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
     {
         FishData fish = fishData[index];
         
-        // Skip processing for virtual fish (obstacles)
-        if (fish.species >= 998)
+        // Skip processing for virtual fish (obstacles) and dragons handle their own avoidance
+        if (fish.species >= 998 || fish.species == 997)
         {
             avoidanceDirections[index] = float3.zero;
             avoidingFlags[index] = false;
@@ -195,6 +206,7 @@ public struct EnhancedBoidsJob : IJobParallelFor
     public NativeArray<float3> desiredDirections;
     public NativeArray<float> accelerations;
     public NativeArray<float3> smoothedDesiredDirections;
+    public NativeArray<float> fearLevels;
 
     static float3 SafeNormalize(float3 v)
     {
@@ -212,14 +224,16 @@ public struct EnhancedBoidsJob : IJobParallelFor
             desiredDirections[index] = float3.zero;
             accelerations[index] = 0f;
             smoothedDesiredDirections[index] = float3.zero;
+            fearLevels[index] = 0f;
             return;
         }
         
         bool isAvoiding = avoidingFlags[index];
         bool isEmergency = emergencyFlags[index];
         float3 avoidanceDir = avoidanceDirections[index];
-
-        // Calculate boids forces (includes virtual fish avoidance)
+        bool isDragon = fish.species == 997;
+        
+        // Calculate boids forces
         float3 sep = CalculateSeparation(fish, index);
         float3 ali = CalculateAlignment(fish, index);
         float3 coh = CalculateCohesion(fish, index);
@@ -232,43 +246,64 @@ public struct EnhancedBoidsJob : IJobParallelFor
 
         float3 combined = float3.zero;
         float accel = baseAcceleration;
+        float currentFear = 0f;
 
-        if (isAvoiding)
+        if (isDragon)
         {
-            if (isEmergency)
-            {
-                combined = avoidanceDir;
-                accel = boostAcceleration * 1.5f;
-            }
-            else
-            {
-                combined += avoidanceDir * 3f;
-                combined += sep * separationWeight;
-                combined += tgtDir * (targetWeight * 0.5f);
-                accel = boostAcceleration;
-            }
+            // Dragon behavior
+            combined = CalculateDragonBehavior(fish, sep, ali, coh, tgtDir, out accel);
         }
         else
         {
-            // Enhanced separation handling for obstacle avoidance
-            float sepMagnitude = math.length(sep);
-            if (sepMagnitude > 0.4f) // Reasonable threshold
+            // Normal fish behavior with dragon fear
+            float3 dragonFear = CalculateDragonFear(fish, index, out currentFear);
+            
+            if (isAvoiding)
             {
-                // Moderate separation boost
-                combined += sep * (separationWeight * 2.2f);
-                combined += ali * (alignmentWeight * 0.8f);
-                combined += coh * (cohesionWeight * 0.6f);
-                combined += tgtDir * targetWeight;
-                accel = baseAcceleration * 1.4f;
+                if (isEmergency)
+                {
+                    combined = avoidanceDir;
+                    accel = boostAcceleration * 1.5f;
+                }
+                else
+                {
+                    combined += avoidanceDir * 3f;
+                    combined += sep * separationWeight;
+                    combined += dragonFear * 5f;
+                    combined += tgtDir * (targetWeight * 0.5f);
+                    accel = boostAcceleration;
+                }
             }
             else
             {
-                // Normal natural schooling behavior
-                combined += sep * separationWeight;
-                combined += ali * alignmentWeight;
-                combined += coh * cohesionWeight;
-                combined += tgtDir * targetWeight;
-                accel = baseAcceleration;
+                float sepMagnitude = math.length(sep);
+                float dragonFearMagnitude = math.length(dragonFear);
+                
+                if (dragonFearMagnitude > 0.1f)
+                {
+                    // Dragon nearby - panic mode
+                    combined += dragonFear * 6f;
+                    combined += sep * separationWeight * 1.5f;
+                    combined += ali * alignmentWeight * 0.8f;
+                    combined += coh * cohesionWeight * 0.3f; // Less cohesion when panicking
+                    accel = boostAcceleration * 1.5f;
+                }
+                else if (sepMagnitude > 0.4f)
+                {
+                    combined += sep * (separationWeight * 2.2f);
+                    combined += ali * (alignmentWeight * 0.8f);
+                    combined += coh * (cohesionWeight * 0.6f);
+                    combined += tgtDir * targetWeight;
+                    accel = baseAcceleration * 1.4f;
+                }
+                else
+                {
+                    combined += sep * separationWeight;
+                    combined += ali * alignmentWeight;
+                    combined += coh * cohesionWeight;
+                    combined += tgtDir * targetWeight;
+                    accel = baseAcceleration;
+                }
             }
         }
 
@@ -282,7 +317,8 @@ public struct EnhancedBoidsJob : IJobParallelFor
         }
         else
         {
-            float smoothingSpeed = isEmergency ? 6f : 3f;
+            float smoothingSpeed = isDragon ? (fish.isHunting ? 8f : 4f) : 
+                                  (isEmergency || currentFear > 0.5f ? 8f : 4f);
             float t = deltaTime * smoothingSpeed;
             
             if (math.lengthsq(newDesiredDir) > 1e-8f && math.lengthsq(currentSmoothed) > 1e-8f)
@@ -321,9 +357,84 @@ public struct EnhancedBoidsJob : IJobParallelFor
         desiredDirections[index] = newDesiredDir;
         smoothedDesiredDirections[index] = currentSmoothed;
         accelerations[index] = accel;
+        fearLevels[index] = currentFear;
     }
 
-    // ENHANCED: Powerful obstacle avoidance through virtual fish separation
+    float3 CalculateDragonBehavior(FishData dragon, float3 sep, float3 ali, float3 coh, float3 tgtDir, out float accel)
+    {
+        float3 combined = float3.zero;
+        
+        if (dragon.isHunting && dragon.energyLevel > 0.3f)
+        {
+            // Hunting mode
+            float3 huntDir = SafeNormalize(dragon.huntTarget - dragon.position);
+            combined += huntDir * 5f;
+            combined += sep * 0.5f; // Dragons care less about separation
+            accel = boostAcceleration * 1.8f;
+        }
+        else if (dragon.isResting)
+        {
+            // Resting mode - gentle movement
+            combined += sep * 0.3f;
+            combined += ali * 0.2f;
+            combined += tgtDir * 0.5f;
+            accel = baseAcceleration * 0.4f;
+        }
+        else
+        {
+            // Patrol mode
+            combined += sep * 0.7f;
+            combined += ali * 0.5f;
+            combined += coh * 0.3f;
+            combined += tgtDir * 1.2f;
+            accel = baseAcceleration * 1.3f;
+        }
+        
+        return combined;
+    }
+
+    float3 CalculateDragonFear(FishData fish, int selfIdx, out float fearLevel)
+    {
+        float3 result = float3.zero;
+        int count = 0;
+        float maxFear = 0f;
+        
+        var neighbors = GetNeighbors(fish.position, selfIdx);
+        for (int i = 0; i < neighbors.Length; i++)
+        {
+            int ni = neighbors[i];
+            if (ni < 0) break;
+            
+            FishData neighbor = fishData[ni];
+            
+            // Only fear dragons
+            if (neighbor.species == 997)
+            {
+                float3 diff = fish.position - neighbor.position;
+                float dist = math.length(diff);
+                
+                float fearRadius = neighbor.huntingRadius;
+                if (dist < fearRadius && dist > 0f)
+                {
+                    float3 normalized = math.normalize(diff);
+                    float panicMultiplier = neighbor.isHunting ? 4f : 2f;
+                    float distanceFactor = 1f - (dist / fearRadius);
+                    
+                    normalized *= panicMultiplier * distanceFactor;
+                    result += normalized;
+                    count++;
+                    
+                    maxFear = math.max(maxFear, distanceFactor * panicMultiplier);
+                }
+            }
+        }
+        
+        neighbors.Dispose();
+        
+        fearLevel = math.clamp(maxFear, 0f, 1f);
+        return count > 0 ? math.normalize(result) : float3.zero;
+    }
+
     float3 CalculateSeparation(FishData fish, int selfIdx)
     {
         // Skip separation calculation for virtual fish
@@ -331,6 +442,7 @@ public struct EnhancedBoidsJob : IJobParallelFor
         
         float3 result = float3.zero;
         int count = 0;
+        bool isDragon = fish.species == 997;
 
         var neighbors = GetNeighbors(fish.position, selfIdx);
         for (int i = 0; i < neighbors.Length && count < maxNeighbors; i++)
@@ -345,22 +457,47 @@ public struct EnhancedBoidsJob : IJobParallelFor
             float effRad = separationRadius;
             float forceMultiplier = 1f;
             
-            // ENHANCED: Different handling for different virtual fish types
-            if (n.species == 999) // Exterior virtual fish (around obstacle)
+            // Dragon separation behavior
+            if (isDragon)
             {
-                effRad = separationRadius * 2.5f; // Much larger radius
-                forceMultiplier = 3f; // Strong avoidance
-            }
-            else if (n.species == 998) // Interior virtual fish (inside obstacle)
-            {
-                effRad = separationRadius * 3f; // Even larger radius
-                forceMultiplier = 5f; // Very strong emergency avoidance
+                if (n.species == 997) // Dragon to dragon
+                {
+                    effRad = separationRadius * 2f;
+                    forceMultiplier = 0.8f;
+                }
+                else if (n.species >= 998) // Dragon to virtual fish
+                {
+                    effRad = separationRadius * 1.5f;
+                    forceMultiplier = 2f;
+                }
+                else // Dragon to normal fish (less separation)
+                {
+                    effRad = separationRadius * 0.5f;
+                    forceMultiplier = 0.3f;
+                }
             }
             else
             {
                 // Normal fish separation
-                if (avoidLargerSpecies && n.species != fish.species && n.fishSize > fish.fishSize)
-                    effRad *= 1.5f;
+                if (n.species == 999) // Exterior virtual fish
+                {
+                    effRad = separationRadius * 2.5f;
+                    forceMultiplier = 3f;
+                }
+                else if (n.species == 998) // Interior virtual fish
+                {
+                    effRad = separationRadius * 3f;
+                    forceMultiplier = 5f;
+                }
+                else if (n.species == 997) // Fear of dragons handled separately
+                {
+                    continue;
+                }
+                else
+                {
+                    if (avoidLargerSpecies && n.species != fish.species && n.fishSize > fish.fishSize)
+                        effRad *= 1.5f;
+                }
             }
 
             if (dist < effRad && dist > 0f)
@@ -369,13 +506,13 @@ public struct EnhancedBoidsJob : IJobParallelFor
                 
                 if (n.species >= 998) // Virtual fish
                 {
-                    normalized /= (dist * 0.3f); // Much stronger inverse distance
+                    normalized /= (dist * 0.3f);
                     result += normalized * forceMultiplier;
                 }
                 else
                 {
                     normalized /= dist;
-                    result += normalized;
+                    result += normalized * forceMultiplier;
                 }
                 count++;
             }
@@ -399,6 +536,7 @@ public struct EnhancedBoidsJob : IJobParallelFor
         
         float3 result = float3.zero;
         int count = 0;
+        bool isDragon = fish.species == 997;
 
         var neighbors = GetNeighbors(fish.position, selfIdx);
         for (int i = 0; i < neighbors.Length && count < maxNeighbors; i++)
@@ -408,8 +546,13 @@ public struct EnhancedBoidsJob : IJobParallelFor
 
             FishData n = fishData[ni];
             
-            // Only align with real fish of same species
-            if (n.species < 998 && (!onlySchoolWithSameSpecies || n.species == fish.species))
+            // Dragons align with dragons, fish align with fish
+            if (isDragon && n.species == 997)
+            {
+                result += SafeNormalize(n.velocity);
+                count++;
+            }
+            else if (!isDragon && n.species < 997 && (!onlySchoolWithSameSpecies || n.species == fish.species))
             {
                 result += SafeNormalize(n.velocity);
                 count++;
@@ -427,6 +570,7 @@ public struct EnhancedBoidsJob : IJobParallelFor
         
         float3 center = float3.zero;
         int count = 0;
+        bool isDragon = fish.species == 997;
 
         var neighbors = GetNeighbors(fish.position, selfIdx);
         for (int i = 0; i < neighbors.Length && count < maxNeighbors; i++)
@@ -436,8 +580,13 @@ public struct EnhancedBoidsJob : IJobParallelFor
 
             FishData n = fishData[ni];
             
-            // Only cohere with real fish of same species
-            if (n.species < 998 && (!onlySchoolWithSameSpecies || n.species == fish.species))
+            // Dragons cohere with dragons, fish cohere with fish
+            if (isDragon && n.species == 997)
+            {
+                center += n.position;
+                count++;
+            }
+            else if (!isDragon && n.species < 997 && (!onlySchoolWithSameSpecies || n.species == fish.species))
             {
                 center += n.position;
                 count++;
