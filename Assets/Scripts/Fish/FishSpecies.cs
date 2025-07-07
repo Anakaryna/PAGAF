@@ -9,5 +9,6 @@ public enum FishSpecies
     YellowtailSnapper,
     Angelfish,
     Grouper,
-    Shark
+    Shark,
+    Dragon = 997
 }

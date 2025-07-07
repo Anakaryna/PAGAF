@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-962988591918461124
+--- !u!114 &-5774281646987908527
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}
@@ -20,29 +20,28 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Shader Graphs_UberFish 1
-  m_Shader: {fileID: -6465566751694194690, guid: f61a31635e495014480ecc6c693ca607,
+  m_Name: BigWater
+  m_Shader: {fileID: -6465566751694194690, guid: cd2da17d41fced842818b6d2590164d8,
     type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 2
-  m_EnableInstancingVariants: 1
-  m_DoubleSidedGI: 1
-  m_CustomRenderQueue: 2000
-  stringTagMap:
-    RenderType: Opaque
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
   disabledShaderPasses: []
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _Galaxy:
-        m_Texture: {fileID: 8900000, guid: ceef2a8ba8e167f48b0fefdfc87993eb, type: 3}
+    - _FoamTexture:
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _StarsCubeMap:
+    - _NormalMap:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
@@ -60,30 +59,23 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AlphaClip: 0
-    - _AlphaToMask: 0
-    - _Blend: 0
-    - _CastShadows: 1
-    - _Cull: 2
-    - _DstBlend: 0
-    - _FishLength: 0.63
-    - _FlagYawAmplitude: 0.01
-    - _FresnelPower: 0
-    - _PivotOffset: 0.01
+    - _Depth: 0
+    - _DepthFade: 0
+    - _Foam: 0
+    - _FoamScale: 1
+    - _NormalStrenght: 0
     - _QueueControl: 0
     - _QueueOffset: 0
-    - _RollAmplitude: 21
-    - _SideAmplitude: 0.1
-    - _SrcBlend: 1
-    - _Surface: 0
-    - _SwimIntensity: 1
-    - _SwimSpeed: 5
-    - _YawAmplitude: 15
-    - _ZTest: 4
-    - _ZWrite: 1
-    - _ZWriteControl: 0
+    - _ReflectionRefraction: 0
+    - _Refraction: 0
+    - _Smothness: 0
+    - _WaterLerp: 0
+    - _Wave: 0
     m_Colors:
-    - _Color: {r: 1.7188214, g: 6.7046237, b: 8.474189, a: 1}
-    - _GalaxyColor: {r: 0.05991155, g: 0.3282548, b: 1.8144629, a: 1}
-    - _StarsColor: {r: 1, g: 1, b: 1, a: 1}
+    - _Albedo: {r: 1, g: 1, b: 1, a: 0}
+    - _FoamColor: {r: 1, g: 1, b: 1, a: 0}
+    - _UV1: {r: 0, g: 0, b: 0, a: 0}
+    - _UV2: {r: 0, g: 0, b: 0, a: 0}
+    - _WaterSpeed1: {r: 0, g: 0, b: 0, a: 0}
+    - _WaterSpeed2: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
