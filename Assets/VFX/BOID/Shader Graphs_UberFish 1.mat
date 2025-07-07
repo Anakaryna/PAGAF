@@ -68,7 +68,7 @@ Material:
     - _DstBlend: 0
     - _FishLength: 0.63
     - _FlagYawAmplitude: 0.01
-    - _FresnelPower: -0.95
+    - _FresnelPower: 0
     - _PivotOffset: 0.01
     - _QueueControl: 0
     - _QueueOffset: 0

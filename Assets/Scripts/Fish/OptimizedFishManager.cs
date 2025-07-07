@@ -4,12 +4,6 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using System.Collections.Generic;
 
-using UnityEngine;
-using Unity.Collections;
-using Unity.Jobs;
-using Unity.Mathematics;
-using System.Collections.Generic;
-
 public class OptimizedFishManager : MonoBehaviour
 {
     public static OptimizedFishManager Instance { get; private set; }
@@ -22,9 +16,10 @@ public class OptimizedFishManager : MonoBehaviour
     [Header("Job Settings")]
     public int jobBatchSize = 32;
     public int maxFishCount = 1000;
-    public int maxVirtualFish = 500; // Reserve space for virtual fish
+    public int maxVirtualFish = 500;
+    public int maxDragons = 10;
 
-    [Header("Boids Parameters - NORMAL SPREAD SCHOOL")]
+    [Header("Boids Parameters")]
     public float neighborRadius = 5f;
     public float separationRadius = 2.2f;
     public float separationWeight = 2.0f;
@@ -42,16 +37,17 @@ public class OptimizedFishManager : MonoBehaviour
     public string obstacleTag = "Obstacle";
     public float obstacleDetectionRadius = 15f;
     public float virtualFishRadius = 2.5f;
-    public int virtualFishRings = 3; // Multiple rings around obstacles
-    public int virtualFishPerRing = 12; // More fish per ring
-    public float ringSpacing = 1.5f; // Distance between rings
+    public int virtualFishRings = 3;
+    public int virtualFishPerRing = 12;
+    public float ringSpacing = 1.5f;
 
     [Header("Debug")]
     public bool showDebugInfo = true;
     public bool showObstacleDebug = true;
-    public bool showVirtualFish = false; // Gizmo display
+    public bool showVirtualFish = false;
 
     readonly List<OptimizedFishController> allFish = new List<OptimizedFishController>();
+    readonly List<DragonController> allDragons = new List<DragonController>();
     private List<GameObject> detectedObstacles = new List<GameObject>();
     private List<FishData> virtualFishData = new List<FishData>();
 
@@ -65,6 +61,7 @@ public class OptimizedFishManager : MonoBehaviour
     NativeArray<float> avoidanceMemoryTimers;
     NativeArray<float3> stableAvoidanceDirections;
     NativeArray<float> avoidanceDirectionTimers;
+    NativeArray<float> fearLevels;
     NativeParallelMultiHashMap<int, int> spatialHashMap;
 
     JobHandle obstacleJobHandle;
@@ -89,7 +86,7 @@ public class OptimizedFishManager : MonoBehaviour
     {
         DisposeArrays();
 
-        int totalCapacity = maxFishCount + maxVirtualFish;
+        int totalCapacity = maxFishCount + maxVirtualFish + maxDragons;
         
         fishDataArray = new NativeArray<FishData>(totalCapacity, Allocator.Persistent);
         desiredDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
@@ -101,12 +98,14 @@ public class OptimizedFishManager : MonoBehaviour
         avoidanceMemoryTimers = new NativeArray<float>(totalCapacity, Allocator.Persistent);
         stableAvoidanceDirections = new NativeArray<float3>(totalCapacity, Allocator.Persistent);
         avoidanceDirectionTimers = new NativeArray<float>(totalCapacity, Allocator.Persistent);
+        fearLevels = new NativeArray<float>(totalCapacity, Allocator.Persistent);
         spatialHashMap = new NativeParallelMultiHashMap<int, int>(totalCapacity * 4, Allocator.Persistent);
     }
 
     void Update()
     {
-        if (allFish.Count == 0) return;
+        int totalEntities = allFish.Count + allDragons.Count;
+        if (totalEntities == 0) return;
 
         if (jobsScheduled)
         {
@@ -125,7 +124,7 @@ public class OptimizedFishManager : MonoBehaviour
             DebugObstacleSystem();
         }
 
-        int totalFishCount = allFish.Count + virtualFishData.Count;
+        int totalFishCount = allFish.Count + allDragons.Count + virtualFishData.Count;
 
         var obstacleJob = new ObstacleAvoidanceJob
         {
@@ -170,7 +169,8 @@ public class OptimizedFishManager : MonoBehaviour
             deltaTime = Time.deltaTime,
             desiredDirections = desiredDirections,
             accelerations = accelerations,
-            smoothedDesiredDirections = smoothedDesiredDirections
+            smoothedDesiredDirections = smoothedDesiredDirections,
+            fearLevels = fearLevels
         };
         boidsJobHandle = boidsJob.Schedule(totalFishCount, jobBatchSize, obstacleJobHandle);
 
@@ -189,8 +189,8 @@ public class OptimizedFishManager : MonoBehaviour
         {
             if (obstacle == null) continue;
             
-            // Check if any real fish are near this obstacle
-            bool fishNearby = false;
+            // Check if any real entities are near this obstacle
+            bool entitiesNearby = false;
             Vector3 obstaclePos = obstacle.transform.position;
             
             for (int i = 0; i < allFish.Count; i++)
@@ -198,12 +198,25 @@ public class OptimizedFishManager : MonoBehaviour
                 float distance = Vector3.Distance(allFish[i].position, obstaclePos);
                 if (distance < obstacleDetectionRadius)
                 {
-                    fishNearby = true;
+                    entitiesNearby = true;
                     break;
                 }
             }
             
-            if (fishNearby)
+            if (!entitiesNearby)
+            {
+                for (int i = 0; i < allDragons.Count; i++)
+                {
+                    float distance = Vector3.Distance(allDragons[i].position, obstaclePos);
+                    if (distance < obstacleDetectionRadius)
+                    {
+                        entitiesNearby = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (entitiesNearby)
             {
                 detectedObstacles.Add(obstacle);
                 CreateVirtualFishAroundObstacle(obstacle);
@@ -224,14 +237,12 @@ public class OptimizedFishManager : MonoBehaviour
         for (int ring = 0; ring < virtualFishRings; ring++)
         {
             float currentRadius = baseRadius + virtualFishRadius + (ring * ringSpacing);
-            int fishInThisRing = virtualFishPerRing + (ring * 4); // More fish in outer rings
+            int fishInThisRing = virtualFishPerRing + (ring * 4);
             
-            // Create virtual fish in current ring
             for (int i = 0; i < fishInThisRing; i++)
             {
                 float angle = (i / (float)fishInThisRing) * 2f * Mathf.PI;
                 
-                // Add some randomness to avoid perfect circles
                 float radiusVariation = UnityEngine.Random.Range(-0.3f, 0.3f);
                 float actualRadius = currentRadius + radiusVariation;
                 
@@ -243,14 +254,13 @@ public class OptimizedFishManager : MonoBehaviour
                 
                 Vector3 virtualPos = center + offset;
                 
-                // Make virtual fish size based on ring (inner = larger)
-                float virtualSize = 6f - (ring * 1f); // Inner ring = size 6, outer = size 4
+                float virtualSize = 6f - (ring * 1f);
                 
                 FishData virtualFish = new FishData
                 {
                     position = new float3(virtualPos.x, virtualPos.y, virtualPos.z),
                     velocity = float3.zero,
-                    species = 999, // Virtual fish species
+                    species = 999,
                     fishSize = virtualSize,
                     targetPosition = float3.zero,
                     hasTarget = false,
@@ -261,23 +271,29 @@ public class OptimizedFishManager : MonoBehaviour
                     avoidanceDirectionTimer = 0f,
                     smoothedDesiredDirection = float3.zero,
                     isAvoiding = false,
-                    isInEmergency = false
+                    isInEmergency = false,
+                    aggressionLevel = 0f,
+                    huntingRadius = 0f,
+                    disruptionStrength = 0f,
+                    isHunting = false,
+                    huntTarget = float3.zero,
+                    energyLevel = 0f,
+                    restTimer = 0f,
+                    isResting = false,
+                    fearLevel = 0f
                 };
                 
                 virtualFishData.Add(virtualFish);
                 
-                // Safety check to avoid too many virtual fish
                 if (virtualFishData.Count >= maxVirtualFish - 20) return;
             }
         }
         
-        // Add virtual fish INSIDE the obstacle for extra safety
         CreateInteriorVirtualFish(obstacle, bounds, center);
     }
 
     void CreateInteriorVirtualFish(GameObject obstacle, Bounds bounds, Vector3 center)
     {
-        // Add virtual fish inside the obstacle bounds as a last resort barrier
         int interiorFish = 8;
         for (int i = 0; i < interiorFish; i++)
         {
@@ -291,8 +307,8 @@ public class OptimizedFishManager : MonoBehaviour
             {
                 position = new float3(randomInteriorPos.x, randomInteriorPos.y, randomInteriorPos.z),
                 velocity = float3.zero,
-                species = 998, // Different species for interior virtual fish
-                fishSize = 8f, // Very large for strong repulsion
+                species = 998,
+                fishSize = 8f,
                 targetPosition = float3.zero,
                 hasTarget = false,
                 lastAvoidanceDirection = float3.zero,
@@ -302,19 +318,27 @@ public class OptimizedFishManager : MonoBehaviour
                 avoidanceDirectionTimer = 0f,
                 smoothedDesiredDirection = float3.zero,
                 isAvoiding = false,
-                isInEmergency = false
+                isInEmergency = false,
+                aggressionLevel = 0f,
+                huntingRadius = 0f,
+                disruptionStrength = 0f,
+                isHunting = false,
+                huntTarget = float3.zero,
+                energyLevel = 0f,
+                restTimer = 0f,
+                isResting = false,
+                fearLevel = 0f
             };
             
             virtualFishData.Add(interiorVirtualFish);
             
-            // Safety check
             if (virtualFishData.Count >= maxVirtualFish) return;
         }
     }
 
     void DebugObstacleSystem()
     {
-        Debug.Log($"OBSTACLE DEBUG - Real Fish: {allFish.Count}, Virtual Fish: {virtualFishData.Count}, " +
+        Debug.Log($"OBSTACLE DEBUG - Real Fish: {allFish.Count}, Dragons: {allDragons.Count}, Virtual Fish: {virtualFishData.Count}, " +
                   $"Active Obstacles: {detectedObstacles.Count}, Max Virtual: {maxVirtualFish}");
         
         int exteriorVirtual = 0;
@@ -331,7 +355,7 @@ public class OptimizedFishManager : MonoBehaviour
 
     void ConsumeJobResults()
     {
-        // Only update real fish, not virtual ones
+        // Update real fish
         for (int i = 0; i < allFish.Count; i++)
         {
             allFish[i].UpdateFromJobResult(
@@ -343,15 +367,34 @@ public class OptimizedFishManager : MonoBehaviour
                 avoidanceMemoryTimers[i],
                 avoidanceDirections[i],
                 stableAvoidanceDirections[i],
-                avoidanceDirectionTimers[i]
+                avoidanceDirectionTimers[i],
+                fearLevels[i]
+            );
+        }
+        
+        // Update dragons
+        for (int i = 0; i < allDragons.Count; i++)
+        {
+            int dragonIndex = allFish.Count + i;
+            allDragons[i].UpdateFromJobResult(
+                desiredDirections[dragonIndex],
+                smoothedDesiredDirections[dragonIndex],
+                accelerations[dragonIndex],
+                avoidingFlags[dragonIndex],
+                emergencyFlags[dragonIndex],
+                avoidanceMemoryTimers[dragonIndex],
+                avoidanceDirections[dragonIndex],
+                stableAvoidanceDirections[dragonIndex],
+                avoidanceDirectionTimers[dragonIndex],
+                fearLevels[dragonIndex]
             );
         }
     }
 
     void BuildInputData()
     {
-        // Combine real fish and virtual fish
-        int totalFishCount = allFish.Count + virtualFishData.Count;
+        // Combine all entities
+        int totalEntityCount = allFish.Count + allDragons.Count + virtualFishData.Count;
         
         // Real fish data
         for (int i = 0; i < allFish.Count; i++)
@@ -359,15 +402,21 @@ public class OptimizedFishManager : MonoBehaviour
             fishDataArray[i] = allFish[i].GetFishData();
         }
         
-        // Add virtual fish data
+        // Dragon data
+        for (int i = 0; i < allDragons.Count; i++)
+        {
+            fishDataArray[allFish.Count + i] = allDragons[i].GetFishData();
+        }
+        
+        // Virtual fish data
         for (int i = 0; i < virtualFishData.Count; i++)
         {
-            fishDataArray[allFish.Count + i] = virtualFishData[i];
+            fishDataArray[allFish.Count + allDragons.Count + i] = virtualFishData[i];
         }
 
-        // Clear and rebuild spatial hash with all fish (real + virtual)
+        // Clear and rebuild spatial hash with all entities
         spatialHashMap.Clear();
-        for (int i = 0; i < totalFishCount; i++)
+        for (int i = 0; i < totalEntityCount; i++)
         {
             float3 p = fishDataArray[i].position;
             int gx = math.clamp((int)(p.x / cellSize), 0, gridWidth - 1);
@@ -395,6 +444,24 @@ public class OptimizedFishManager : MonoBehaviour
         }
     }
 
+    public void RegisterDragon(DragonController dragon)
+    {
+        if (allDragons.Count < maxDragons && !allDragons.Contains(dragon))
+        {
+            dragon.fishIndex = allDragons.Count;
+            allDragons.Add(dragon);
+        }
+    }
+
+    public void UnregisterDragon(DragonController dragon)
+    {
+        if (allDragons.Remove(dragon))
+        {
+            for (int i = 0; i < allDragons.Count; i++)
+                allDragons[i].fishIndex = i;
+        }
+    }
+
     void DisposeArrays()
     {
         if (fishDataArray.IsCreated) fishDataArray.Dispose();
@@ -407,6 +474,7 @@ public class OptimizedFishManager : MonoBehaviour
         if (avoidanceMemoryTimers.IsCreated) avoidanceMemoryTimers.Dispose();
         if (stableAvoidanceDirections.IsCreated) stableAvoidanceDirections.Dispose();
         if (avoidanceDirectionTimers.IsCreated) avoidanceDirectionTimers.Dispose();
+        if (fearLevels.IsCreated) fearLevels.Dispose();
         if (spatialHashMap.IsCreated) spatialHashMap.Dispose();
     }
 
@@ -446,9 +514,10 @@ public class OptimizedFishManager : MonoBehaviour
     {
         if (!showDebugInfo || !Application.isPlaying) return;
 
-        GUILayout.BeginArea(new Rect(10, Screen.height - 200, 450, 190));
-        GUILayout.Box("Fish Manager Debug - ENHANCED OBSTACLE AVOIDANCE");
+        GUILayout.BeginArea(new Rect(10, Screen.height - 220, 450, 210));
+        GUILayout.Box("Fish Manager Debug - ENHANCED WITH DRAGONS");
         GUILayout.Label($"Real Fish: {allFish.Count}");
+        GUILayout.Label($"Dragons: {allDragons.Count}");
         GUILayout.Label($"Virtual Fish: {virtualFishData.Count} / {maxVirtualFish}");
         GUILayout.Label($"Active Obstacles: {detectedObstacles.Count}");
         GUILayout.Label($"Separation Radius: {separationRadius:F1}");
@@ -456,6 +525,18 @@ public class OptimizedFishManager : MonoBehaviour
         GUILayout.Label($"Virtual Fish Rings: {virtualFishRings}");
         GUILayout.Label($"Fish per Ring: {virtualFishPerRing}");
         GUILayout.Label($"Detection Radius: {obstacleDetectionRadius:F1}");
+        
+        // Dragon stats
+        int huntingDragons = 0;
+        int restingDragons = 0;
+        foreach (var dragon in allDragons)
+        {
+            if (dragon.IsHunting()) huntingDragons++;
+            if (dragon.IsResting()) restingDragons++;
+        }
+        GUILayout.Label($"Hunting Dragons: {huntingDragons}");
+        GUILayout.Label($"Resting Dragons: {restingDragons}");
+        
         GUILayout.EndArea();
     }
 }
