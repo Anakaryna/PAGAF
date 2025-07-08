@@ -1,0 +1,273 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2997156468882933689
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2146336660669001697}
+  - component: {fileID: 6533701747533266492}
+  - component: {fileID: 360624891605039307}
+  m_Layer: 2
+  m_Name: VFXEffect
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2146336660669001697
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2997156468882933689}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6533701747533266492
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2997156468882933689}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9358e4aaab37f584cb3d5bb3dfb52505, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  grassMaterial: {fileID: 2100000, guid: 083de6f14cd658749a51f88992865733, type: 2}
+  clearWindAmbientStrength: 0.2
+  clearWindSpeed: 3
+  clearWindGustStrength: 0
+  clearWindGustFreq: 4
+  clearWindSwinging: 0.15
+  cloudWindAmbientStrength: 0.5
+  cloudWindSpeed: 4
+  cloudWindGustStrength: 0.3
+  cloudWindGustFreq: 5
+  cloudWindSwinging: 0.2
+  rainWindAmbientStrength: 0.8
+  rainWindSpeed: 5
+  rainWindGustStrength: 0.7
+  rainWindGustFreq: 5
+  rainWindSwinging: 0.4
+  snowWindAmbientStrength: 0.3
+  snowWindSpeed: 3.5
+  snowWindGustStrength: 0.1
+  snowWindGustFreq: 3
+  snowWindSwinging: 0.18
+  snowBaseColor: {r: 1, g: 1, b: 1, a: 1}
+  snowHueVariation: {r: 0.9, g: 0.9, b: 0.9, a: 0.05}
+--- !u!114 &360624891605039307
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2997156468882933689}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c9cac8b723024792acee414622917289, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  leavesVFXAsset: {fileID: 8926484042661614526, guid: fdff57e550c4edd468d4da0516d13a8e,
+    type: 3}
+  clearWind: 0
+  cloudWind: 0.5
+  rainWind: 10
+  snowWind: 0.3
+  cloudLeaves: 15
+  rainLeaves: 35
+  snowLeaves: 10
+  dayIntensity: 3.93
+  nightIntensity: 1.5
+  dayLeavesGradient:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.11372549, b: 0.050499436, a: 1}
+    key1: {r: 0, g: 0.5849056, b: 0.10563768, a: 1}
+    key2: {r: 0.3218288, g: 0.99607843, b: 0.03921567, a: 0}
+    key3: {r: 0.89119315, g: 0.9516823, b: 0.12698342, a: 0}
+    key4: {r: 0.93011117, g: 0.9734455, b: 0.25415218, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 28835
+    ctime2: 50462
+    ctime3: 60331
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 6554
+    atime1: 52428
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  nightLeavesGradient:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.11372549, b: 0.050499436, a: 1}
+    key1: {r: 0, g: 0.1137255, b: 0.050980397, a: 1}
+    key2: {r: 0, g: 0.1137255, b: 0.050980397, a: 0}
+    key3: {r: 0.89119315, g: 0.9516823, b: 0.12698342, a: 0}
+    key4: {r: 0.93011117, g: 0.9734455, b: 0.25415218, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 28835
+    ctime2: 50462
+    ctime3: 60331
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 6554
+    atime1: 52428
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  snowLeavesGradient:
+    serializedVersion: 2
+    key0: {r: 1, g: 1, b: 1, a: 1}
+    key1: {r: 0, g: 0.11372548, b: 0.050499436, a: 1}
+    key2: {r: 0, g: 0, b: 0, a: 1}
+    key3: {r: 0, g: 0, b: 0, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 16731
+    ctime1: 65535
+    ctime2: 0
+    ctime3: 0
+    ctime4: 0
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 52428
+    atime1: 60369
+    atime2: 60524
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 2
+    m_NumAlphaKeys: 3
+  dayPositionGradient:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.11372549, b: 0.050499436, a: 1}
+    key1: {r: 0, g: 0.5849056, b: 0.10563768, a: 1}
+    key2: {r: 0.3218288, g: 0.99607843, b: 0.03921567, a: 0}
+    key3: {r: 0.89119315, g: 0.9516823, b: 0.12698342, a: 0}
+    key4: {r: 0.93011117, g: 0.9734455, b: 0.25415218, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 28835
+    ctime2: 50462
+    ctime3: 60331
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 6554
+    atime1: 52428
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  nightPositionGradient:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.11372549, b: 0.050499436, a: 1}
+    key1: {r: 0, g: 0.1137255, b: 0.050980397, a: 1}
+    key2: {r: 0, g: 0.1137255, b: 0.050980397, a: 0}
+    key3: {r: 0.89119315, g: 0.9516823, b: 0.12698342, a: 0}
+    key4: {r: 0.93011117, g: 0.9734455, b: 0.25415218, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 28835
+    ctime2: 50462
+    ctime3: 60331
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 6554
+    atime1: 52428
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  snowPositionGradient:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.1559265, b: 0.056128494, a: 1}
+    key1: {r: 1, g: 1, b: 1, a: 1}
+    key2: {r: 0, g: 0, b: 0, a: 0}
+    key3: {r: 0, g: 0, b: 0, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 56669
+    ctime2: 0
+    ctime3: 0
+    ctime4: 0
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 60369
+    atime1: 60524
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 2
+    m_NumAlphaKeys: 2
