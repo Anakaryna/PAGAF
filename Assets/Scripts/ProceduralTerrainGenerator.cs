@@ -45,6 +45,10 @@ public sealed class ProceduralTerrainGenerator : MonoBehaviour
     [Header("Water Mesh Mode")]
     [Tooltip("When false, generates a full-grid water mesh (no greedy merges) so vertex waves work smoothly.")]
     public bool useGreedyWaterMesh = true;
+    
+    [Header("Génération")]
+    public float maxGenerationAltitude = 50f;
+
 
     /* ─────────── Data ─────────── */
     readonly Dictionary<Vector3Int, BlockData> world = new();
@@ -143,6 +147,14 @@ public sealed class ProceduralTerrainGenerator : MonoBehaviour
 
         while (true)
         {
+            // Si on est trop haut : on ne génère ni ne supprime de chunks
+            if (player.position.y > maxGenerationAltitude)
+            {
+                yield return null;
+                continue;
+            }
+
+            // Sinon, comportement normal :
             CullFarBlocks(radiusCullSq);
 
             do
@@ -154,6 +166,7 @@ public sealed class ProceduralTerrainGenerator : MonoBehaviour
             while (blocksThisFrame >= maxBlocksPerFrame);
         }
     }
+
 
     /* ─────────── Ring-buffer culling ─────────── */
     void CullFarBlocks(int radiusSq)
