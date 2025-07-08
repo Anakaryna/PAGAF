@@ -44,6 +44,12 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
     [ReadOnly] public float deltaTime;
     [ReadOnly] public float avoidanceBlendSpeed;
     
+    // Configurable boundary settings
+    [ReadOnly] public bool enableBoundaries;
+    [ReadOnly] public float3 boundaryCenter;
+    [ReadOnly] public float3 boundarySize;
+    [ReadOnly] public float emergencyBoundaryOffset;
+    
     public NativeArray<float3> avoidanceDirections;
     public NativeArray<bool> avoidingFlags;
     public NativeArray<bool> emergencyFlags;
@@ -78,8 +84,11 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
             if (memoryTimer <= 0f) hasMemory = false;
         }
         
-        // Very lenient world boundaries - only avoid at extreme distances
-        float3 currentAvoidanceDirection = CalculateVeryLenientBoundaryAvoidance(fish.position);
+        // Calculate boundary avoidance (now configurable and much more lenient)
+        float3 currentAvoidanceDirection = enableBoundaries ? 
+            CalculateConfigurableBoundaryAvoidance(fish.position) : 
+            float3.zero;
+        
         bool isAvoiding = false;
         bool isEmergency = false;
         float3 finalAvoidanceDirection = float3.zero;
@@ -88,7 +97,7 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
         if (!currentAvoidanceDirection.Equals(float3.zero))
         {
             isAvoiding = true;
-            isEmergency = IsInEmergencyDistance(fish.position);
+            isEmergency = enableBoundaries && IsInEmergencyDistance(fish.position);
             
             if (stableAvoidance.Equals(float3.zero) || dirTimer <= 0f)
             {
@@ -133,24 +142,32 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
         avoidanceDirectionTimers[index] = dirTimer;
     }
     
-    float3 CalculateVeryLenientBoundaryAvoidance(float3 position)
+    float3 CalculateConfigurableBoundaryAvoidance(float3 position)
     {
         float3 avoidDir = float3.zero;
-        float extremeBoundary = 100f;
         
-        if (position.x > extremeBoundary) 
+        // Calculate relative position from boundary center
+        float3 relativePos = position - boundaryCenter;
+        
+        // Half sizes for boundary checking
+        float3 halfSize = boundarySize * 0.5f;
+        
+        // Check X boundary
+        if (relativePos.x > halfSize.x)
             avoidDir.x = -1f;
-        else if (position.x < -extremeBoundary) 
+        else if (relativePos.x < -halfSize.x)
             avoidDir.x = 1f;
         
-        if (position.z > extremeBoundary) 
+        // Check Z boundary
+        if (relativePos.z > halfSize.z)
             avoidDir.z = -1f;
-        else if (position.z < -extremeBoundary) 
+        else if (relativePos.z < -halfSize.z)
             avoidDir.z = 1f;
         
-        if (position.y > 50f) 
+        // Check Y boundary
+        if (relativePos.y > halfSize.y)
             avoidDir.y = -1f;
-        else if (position.y < -50f) 
+        else if (relativePos.y < -halfSize.y)
             avoidDir.y = 1f;
         
         return math.lengthsq(avoidDir) > 0f ? math.normalize(avoidDir) : float3.zero;
@@ -158,22 +175,30 @@ public struct ObstacleAvoidanceJob : IJobParallelFor
     
     bool IsInEmergencyDistance(float3 position)
     {
-        float extremeBoundary = 100f;
-        return math.abs(position.x) > extremeBoundary - 5f || 
-               math.abs(position.z) > extremeBoundary - 5f ||
-               math.abs(position.y) > 45f;
+        // Calculate relative position from boundary center
+        float3 relativePos = position - boundaryCenter;
+        
+        // Half sizes minus emergency offset
+        float3 emergencyHalfSize = (boundarySize * 0.5f) - emergencyBoundaryOffset;
+        
+        return math.abs(relativePos.x) > emergencyHalfSize.x || 
+               math.abs(relativePos.z) > emergencyHalfSize.z ||
+               math.abs(relativePos.y) > emergencyHalfSize.y;
     }
     
     bool IsPathClear(float3 position, float3 direction)
     {
-        if (direction.Equals(float3.zero)) return true;
+        if (direction.Equals(float3.zero) || !enableBoundaries) return true;
         
         float3 checkPos = position + direction * clearPathCheckDistance;
-        float extremeBoundary = 100f;
         
-        return math.abs(checkPos.x) < extremeBoundary && 
-               math.abs(checkPos.z) < extremeBoundary && 
-               math.abs(checkPos.y) < 50f;
+        // Calculate relative position from boundary center
+        float3 relativePos = checkPos - boundaryCenter;
+        float3 halfSize = boundarySize * 0.5f;
+        
+        return math.abs(relativePos.x) < halfSize.x && 
+               math.abs(relativePos.z) < halfSize.z && 
+               math.abs(relativePos.y) < halfSize.y;
     }
 }
 

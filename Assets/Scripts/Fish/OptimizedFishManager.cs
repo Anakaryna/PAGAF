@@ -32,6 +32,12 @@ public class OptimizedFishManager : MonoBehaviour
     public bool onlySchoolWithSameSpecies = true;
     public bool avoidLargerSpecies = true;
 
+    [Header("Boundary Settings")]
+    public bool enableBoundaries = false;  // Disabled by default
+    public Vector3 boundaryCenter = Vector3.zero;
+    public Vector3 boundarySize = new Vector3(2000f, 1000f, 2000f);  // Much larger boundaries
+    public float emergencyBoundaryOffset = 50f;
+
     [Header("Obstacle Avoidance as Virtual Fish")]
     public LayerMask obstacleLayer = 1;
     public string obstacleTag = "Obstacle";
@@ -45,6 +51,7 @@ public class OptimizedFishManager : MonoBehaviour
     public bool showDebugInfo = true;
     public bool showObstacleDebug = true;
     public bool showVirtualFish = false;
+    public bool showBoundaries = true;
 
     readonly List<OptimizedFishController> allFish = new List<OptimizedFishController>();
     readonly List<DragonController> allDragons = new List<DragonController>();
@@ -135,6 +142,13 @@ public class OptimizedFishManager : MonoBehaviour
             clearPathCheckDistance = 8f,
             deltaTime = Time.deltaTime,
             avoidanceBlendSpeed = 2f,
+            
+            // Add boundary parameters
+            enableBoundaries = enableBoundaries,
+            boundaryCenter = new float3(boundaryCenter.x, boundaryCenter.y, boundaryCenter.z),
+            boundarySize = new float3(boundarySize.x, boundarySize.y, boundarySize.z),
+            emergencyBoundaryOffset = emergencyBoundaryOffset,
+            
             avoidanceDirections = avoidanceDirections,
             avoidingFlags = avoidingFlags,
             emergencyFlags = emergencyFlags,
@@ -490,22 +504,37 @@ public class OptimizedFishManager : MonoBehaviour
 
     void OnDrawGizmos()
     {
-        if (!showVirtualFish || !Application.isPlaying) return;
+        if (!Application.isPlaying) return;
+        
+        // Draw boundaries if enabled
+        if (enableBoundaries && showBoundaries)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireCube(boundaryCenter, boundarySize);
+            
+            // Draw emergency boundary
+            Gizmos.color = Color.red;
+            Vector3 emergencySize = boundarySize - Vector3.one * (emergencyBoundaryOffset * 2);
+            Gizmos.DrawWireCube(boundaryCenter, emergencySize);
+        }
         
         // Draw virtual fish as small spheres
-        foreach (var vf in virtualFishData)
+        if (showVirtualFish)
         {
-            Vector3 pos = new Vector3(vf.position.x, vf.position.y, vf.position.z);
-            
-            if (vf.species == 999) // Exterior virtual fish
+            foreach (var vf in virtualFishData)
             {
-                Gizmos.color = Color.red;
-                Gizmos.DrawWireSphere(pos, 0.3f);
-            }
-            else if (vf.species == 998) // Interior virtual fish
-            {
-                Gizmos.color = Color.magenta;
-                Gizmos.DrawSphere(pos, 0.2f);
+                Vector3 pos = new Vector3(vf.position.x, vf.position.y, vf.position.z);
+                
+                if (vf.species == 999) // Exterior virtual fish
+                {
+                    Gizmos.color = Color.red;
+                    Gizmos.DrawWireSphere(pos, 0.3f);
+                }
+                else if (vf.species == 998) // Interior virtual fish
+                {
+                    Gizmos.color = Color.magenta;
+                    Gizmos.DrawSphere(pos, 0.2f);
+                }
             }
         }
     }
@@ -514,7 +543,7 @@ public class OptimizedFishManager : MonoBehaviour
     {
         if (!showDebugInfo || !Application.isPlaying) return;
 
-        GUILayout.BeginArea(new Rect(10, Screen.height - 220, 450, 210));
+        GUILayout.BeginArea(new Rect(10, Screen.height - 280, 450, 270));
         GUILayout.Box("Fish Manager Debug - ENHANCED WITH DRAGONS");
         GUILayout.Label($"Real Fish: {allFish.Count}");
         GUILayout.Label($"Dragons: {allDragons.Count}");
@@ -525,6 +554,14 @@ public class OptimizedFishManager : MonoBehaviour
         GUILayout.Label($"Virtual Fish Rings: {virtualFishRings}");
         GUILayout.Label($"Fish per Ring: {virtualFishPerRing}");
         GUILayout.Label($"Detection Radius: {obstacleDetectionRadius:F1}");
+        
+        // Boundary info
+        GUILayout.Label($"Boundaries: {(enableBoundaries ? "ENABLED" : "DISABLED")}");
+        if (enableBoundaries)
+        {
+            GUILayout.Label($"Boundary Center: {boundaryCenter}");
+            GUILayout.Label($"Boundary Size: {boundarySize}");
+        }
         
         // Dragon stats
         int huntingDragons = 0;

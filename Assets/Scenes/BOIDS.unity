@@ -688,6 +688,10 @@ MonoBehaviour:
   maxNeighbors: 20
   onlySchoolWithSameSpecies: 1
   avoidLargerSpecies: 1
+  enableBoundaries: 0
+  boundaryCenter: {x: 0, y: 0, z: 0}
+  boundarySize: {x: 2000, y: 1000, z: 2000}
+  emergencyBoundaryOffset: 50
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 8
@@ -700,6 +704,7 @@ MonoBehaviour:
   showDebugInfo: 1
   showObstacleDebug: 1
   showVirtualFish: 0
+  showBoundaries: 1
 --- !u!4 &785048620
 Transform:
   m_ObjectHideFlags: 0
@@ -790,6 +795,10 @@ MonoBehaviour:
   maxNeighbors: 20
   onlySchoolWithSameSpecies: 1
   avoidLargerSpecies: 1
+  enableBoundaries: 0
+  boundaryCenter: {x: 0, y: 0, z: 0}
+  boundarySize: {x: 2000, y: 1000, z: 2000}
+  emergencyBoundaryOffset: 50
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 1
@@ -802,6 +811,7 @@ MonoBehaviour:
   showDebugInfo: 0
   showObstacleDebug: 1
   showVirtualFish: 0
+  showBoundaries: 1
 --- !u!1001 &871909601
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2415,6 +2425,11 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: Boids
+      objectReference: {fileID: 0}
+    - target: {fileID: 7803139403732220044, guid: b1f429f9c128a8b46bf8b859e9a2ca72,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
