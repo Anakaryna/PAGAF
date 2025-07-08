@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /// <summary>
 /// Wave Function Collapse (WFC) island generator
 /// </summary>
+[ExecuteAlways]
 public class WFCFIslandGenerator : MonoBehaviour
 {
     [Header("Grid Size")]
@@ -22,23 +25,36 @@ public class WFCFIslandGenerator : MonoBehaviour
     public class TileDef
     {
         public string name;
-        public GameObject prefab;
+
+        [Tooltip("List of interchangeable prefab variants for this tile")]
+        public GameObject[] prefabs;
+
         [Range(0.1f, 10f)]
         public float weight = 1f;
     }
+
 
     // wave[x,y,t]: is tile t still possible at cell (x,y)?
     private bool[,,] wave;
     // neighborAllowed[a,b,d]: can tile b sit in direction d of tile a?
     private bool[,,] neighborAllowed;
     private System.Random rng;
+    
+    [Header("Random Rotation Settings")]
+    [Tooltip("If enabled, each cell when placed will pick one of the angles below.")]
+    public bool enableRandomRotation = false;
 
-    void Start()
-    {
-        rng = new System.Random();
-        BuildNeighborRules();
-        GenerateIsland();
-    }
+    [Tooltip("Y-axis angles (in degrees) that can be chosen at random")]
+    public float[] rotationAngles = new float[] { 0f, 45f, 90f, 135f };
+
+
+
+    // void Start()
+    // {
+    //     rng = new System.Random();
+    //     BuildNeighborRules();
+    //     GenerateIsland();
+    // }
 
     /// <summary>
     /// Automatically build neighborAllowed[,] based purely on each tile's name
@@ -88,12 +104,20 @@ public class WFCFIslandGenerator : MonoBehaviour
         // Island ↔ Water, Island ↔ Island, Water ↔ Water all allowed
         return true;
     }
+    
 
     /// <summary>
     /// Starts a fresh WFC run, retries on contradiction
     /// </summary>
+    [ContextMenu("WFC → Generate Island")]
     public void GenerateIsland()
     {
+        // ensure rng & rules exist
+        if (rng == null) {
+            rng = new System.Random();
+            BuildNeighborRules();
+        }
+        
         ClearPrevious();
         InitializeWave();
 
@@ -108,6 +132,12 @@ public class WFCFIslandGenerator : MonoBehaviour
             InstantiateTiles();
             FillAirWithWaterOrBubble();
         }
+        
+#if UNITY_EDITOR
+        EditorUtility.SetDirty(gameObject);
+        if (!Application.isPlaying)
+            EditorSceneManager.MarkSceneDirty(gameObject.scene);
+#endif
     }
 
     /// <summary>
@@ -115,10 +145,13 @@ public class WFCFIslandGenerator : MonoBehaviour
     /// </summary>
     void ClearPrevious()
     {
-        // remove old children
-        foreach (Transform c in transform)
-            DestroyImmediate(c.gameObject);
+        // Destroy all direct children, backwards so the index stays valid
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            DestroyImmediate(transform.GetChild(i).gameObject);
+        }
     }
+
 
     /// <summary>
     /// Initializes the wave to allow all tiles in every cell.
@@ -359,11 +392,36 @@ public class WFCFIslandGenerator : MonoBehaviour
         {
             for (int t = 0; t < tiles.Length; t++) if (wave[x,y,t])
             {
+                // --- position ---
                 Vector3 pos = transform.position
-                            + new Vector3(x * cellSize.x, 0, y * cellSize.y);
-                Instantiate(tiles[t].prefab, pos, Quaternion.identity, transform);
+                              + new Vector3(x * cellSize.x, 0, y * cellSize.y);
+
+                // --- choose a random variant prefab ---
+                var variants = tiles[t].prefabs;
+                if (variants == null || variants.Length == 0)
+                {
+                    Debug.LogWarning($"No prefabs set for tile {tiles[t].name}");
+                    continue;
+                }
+                int idx = rng.Next(variants.Length);
+                GameObject chosenPrefab = variants[idx];
+
+                // --- choose rotation ---
+                Quaternion rot = Quaternion.identity;
+                if (enableRandomRotation && rotationAngles != null && rotationAngles.Length > 0)
+                {
+                    // pick a random index into your allowed angles
+                    int ri = rng.Next(rotationAngles.Length);
+                    float angle = rotationAngles[ri];
+                    rot = Quaternion.Euler(0f, angle, 0f);
+                }
+
+
+                // --- instantiate ---
+                Instantiate(chosenPrefab, pos, rot, transform);
                 break;
             }
         }
     }
+
 }

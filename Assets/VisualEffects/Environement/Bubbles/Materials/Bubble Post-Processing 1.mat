@@ -140,7 +140,7 @@ Material:
     - _QueueOffset: 0
     - _RGBSplit: 0.04
     - _RGBSplitSteps: 16
-    - _Radius: 0.5
+    - _Radius: 0
     - _Radius_Scale: 1
     - _ReceiveShadows: 1
     - _Smoothness: 0.5
