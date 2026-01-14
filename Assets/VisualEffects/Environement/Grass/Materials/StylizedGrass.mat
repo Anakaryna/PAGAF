@@ -86,23 +86,23 @@ Material:
     - _VertexColorShadingChannel: 0
     - _VertexColorWindChannel: 0
     - _VertexDarkening: 0.1
-    - _WindAmbientStrength: 0.5
-    - _WindGustFreq: 5
+    - _WindAmbientStrength: 0.3
+    - _WindGustFreq: 3
     - _WindGustSpeed: 4
-    - _WindGustStrength: 0.3
+    - _WindGustStrength: 0.1
     - _WindGustTint: 0.1
     - _WindObjectRand: 0.5
     - _WindRandStrength: 0.5
-    - _WindSpeed: 4
-    - _WindSwinging: 0.2
+    - _WindSpeed: 3.5
+    - _WindSwinging: 0.18
     - _WindVertexRand: 0.6
     m_Colors:
-    - _BaseColor: {r: 0.49, g: 0.89, b: 0.11999983, a: 1}
+    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _BendTint: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _FadeFar: {r: 50, g: 100, b: 0, a: 0}
     - _FadeNear: {r: 0.25, g: 0.5, b: 0, a: 0}
-    - _HueVariation: {r: 1, g: 0.63, b: 0, a: 0.15}
+    - _HueVariation: {r: 0.9, g: 0.9, b: 0.9, a: 0.05}
     - _LODDebugColor: {r: 1, g: 1, b: 1, a: 1}
     - _ScalemapInfluence: {r: 0, g: 1, b: 0, a: 0}
     - _WindDirection: {r: 1, g: 0, b: 0, a: 0}
